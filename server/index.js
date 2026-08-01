@@ -37,21 +37,36 @@ function enforceUserArea(req, area) {
 
 // ---------- Auth ----------
 app.post('/api/login', async (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) return res.status(400).json({ error: 'Usuario e senha obrigatorios' });
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) return res.status(400).json({ error: 'Usuario e senha obrigatorios' });
 
-  const { rows } = await pool.query('SELECT * FROM users WHERE username = $1', [username.toLowerCase()]);
-  const user = rows[0];
-  if (!user) return res.status(401).json({ error: 'Usuario ou senha invalidos' });
+    const uname = String(username).trim().toLowerCase();
+    const { rows } = await pool.query('SELECT * FROM users WHERE LOWER(username) = $1', [uname]);
+    const user = rows[0];
+    if (!user) return res.status(401).json({ error: 'Usuario ou senha invalidos' });
+    if (!user.password_hash) {
+      return res.status(401).json({ error: 'Conta sem senha configurada. Reinicie o serviço ou contate o admin.' });
+    }
 
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: 'Usuario ou senha invalidos' });
+    const ok = await bcrypt.compare(String(password), user.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Usuario ou senha invalidos' });
 
-  const token = signToken(user);
-  res.json({
-    token,
-    user: { username: user.username, role: user.role, nome: user.nome, tecnico: user.tecnico, area_scope: user.area_scope || null },
-  });
+    const token = signToken(user);
+    res.json({
+      token,
+      user: {
+        username: user.username,
+        role: user.role,
+        nome: user.nome,
+        tecnico: user.tecnico,
+        area_scope: user.area_scope || null,
+      },
+    });
+  } catch (e) {
+    console.error('Erro no login:', e);
+    res.status(500).json({ error: 'Erro interno no login' });
+  }
 });
 
 app.get('/api/me', authRequired, (req, res) => {

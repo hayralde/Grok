@@ -269,24 +269,40 @@ async function init() {
     );
   }
 
-  // Garante usuário supertgm (supervisor só da área TGM) — mesmo se a tabela já tinha usuários
-  const supTgmHash = await bcrypt.hash(DEFAULT_SUPERVISOR_PASSWORD, 10);
-  const { rows: st } = await pool.query(`SELECT id FROM users WHERE username = 'supertgm'`);
-  if (st.length === 0) {
-    await pool.query(
-      `INSERT INTO users (username, password_hash, role, nome, tecnico, area_scope)
-       VALUES ($1,$2,'supervisor',$3,NULL,'TGM')`,
-      ['supertgm', supTgmHash, 'Supervisor TGM']
-    );
-    console.log('Usuario supertgm criado (supervisor restrito à área TGM).');
-  } else {
-    await pool.query(
-      `UPDATE users SET role = 'supervisor', nome = 'Supervisor TGM', area_scope = 'TGM',
-        password_hash = COALESCE(password_hash, $1)
-       WHERE username = 'supertgm'`,
-      [supTgmHash]
-    );
-  }
+  // Garante contas principais com senhas das env vars (sempre atualiza o hash)
+  const adminHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+  const supHash = await bcrypt.hash(DEFAULT_SUPERVISOR_PASSWORD, 10);
+  const supTgmHash = supHash;
+
+  await pool.query(
+    `INSERT INTO users (username, password_hash, role, nome, tecnico, area_scope)
+     VALUES ('admin', $1, 'admin', 'Administrador', NULL, NULL)
+     ON CONFLICT (username) DO UPDATE SET
+       password_hash = EXCLUDED.password_hash,
+       role = 'admin',
+       nome = COALESCE(users.nome, EXCLUDED.nome)`,
+    [adminHash]
+  );
+  await pool.query(
+    `INSERT INTO users (username, password_hash, role, nome, tecnico, area_scope)
+     VALUES ('supervisor', $1, 'supervisor', 'Supervisor PCM', NULL, NULL)
+     ON CONFLICT (username) DO UPDATE SET
+       password_hash = EXCLUDED.password_hash,
+       role = 'supervisor',
+       nome = COALESCE(users.nome, EXCLUDED.nome)`,
+    [supHash]
+  );
+  await pool.query(
+    `INSERT INTO users (username, password_hash, role, nome, tecnico, area_scope)
+     VALUES ('supertgm', $1, 'supervisor', 'Supervisor TGM', NULL, 'TGM')
+     ON CONFLICT (username) DO UPDATE SET
+       password_hash = EXCLUDED.password_hash,
+       role = 'supervisor',
+       nome = 'Supervisor TGM',
+       area_scope = 'TGM'`,
+    [supTgmHash]
+  );
+  console.log('Contas prontas: admin / supervisor / supertgm (senhas das variáveis de ambiente ou padrão).');
 }
 
 function normalizeArea(raw) {
