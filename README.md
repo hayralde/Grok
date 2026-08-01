@@ -14,7 +14,7 @@
 
 Formato: `4.0.0.N` (N = 1…9). Depois de `4.0.0.9` sobe para `4.0.1.0`, depois `4.0.1.1` … `4.0.1.9` → `4.0.2.0`.
 
-Versão atual deste pacote: **4.0.1.2**
+Versão atual deste pacote: **4.0.1.3**
 
 Abas do painel: **Tarefas · Gantt · Curva S · Equipe**
 (aba Linha do Tempo / Marcos removida).

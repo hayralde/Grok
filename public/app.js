@@ -9,7 +9,6 @@ let socket = null;
 
 let statusFilter = 'todas';
 let dateFilter = 'todas';
-  techFilter = 'todos';
 let techFilter = 'todos';
 let collapsedState = {};
 let sCurveChart = null;
@@ -147,7 +146,9 @@ document.querySelectorAll('#areaSwitcher .area-btn').forEach(btn => {
     document.getElementById('headerSub').textContent = AREA_LABELS[CURRENT_AREA] || CURRENT_AREA;
     collapsedState = {};
     dateFilter = 'todas';
+    techFilter = 'todos';
     document.getElementById('dateChips').innerHTML = '';
+    const _tc = document.getElementById('techChips'); if (_tc) { _tc.innerHTML = ''; _tc.dataset.sig = ''; }
     if (sCurveChart) { sCurveChart.destroy(); sCurveChart = null; }
     await reloadData();
     renderAll();
