@@ -241,6 +241,21 @@ app.post('/api/import', authRequired, requireRole('admin'), async (req, res) => 
     });
   }
 
+  // Trava: disciplina do arquivo deve coincidir com a disciplina ativa no painel (query area)
+  const expected = normalizeArea(req.query && req.query.area);
+  if (expected && expected !== area) {
+    return res.status(400).json({
+      error: 'Disciplina divergente: o arquivo e de ' + area
+        + ', mas o painel esta em ' + expected
+        + '. Selecione a disciplina correta no header ou use o JSON da disciplina ' + expected + '.',
+    });
+  }
+  if (!expected) {
+    return res.status(400).json({
+      error: 'Informe a disciplina ativa do painel (query area=ELETRICA|MECANICA|TGM) para validar o import.',
+    });
+  }
+
   const deniedImport = enforceUserArea(req, area);
   if (deniedImport) return res.status(403).json({ error: deniedImport });
 

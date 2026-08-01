@@ -724,25 +724,51 @@ function renderEquipe() {
     </div>
   `;
 
+  // Agrega a partir de TASKS (mesma fonte do STATUS GERAL) — PESSOA e EQUIPE iguais
   const techBody = document.getElementById('techPanelBody');
-  const rows = TEAM.slice().sort((a, b) => b.horas_planejadas - a.horas_planejadas);
+  const byTech = {};
+  TASKS.forEach(t => {
+    const key = t.tecnico || '(sem responsável)';
+    if (!byTech[key]) {
+      byTech[key] = {
+        tecnico: key,
+        tecnico_tipo: t.tecnico_tipo || 'PESSOA',
+        total_tarefas: 0,
+        tarefas_concluidas: 0,
+        horas_planejadas: 0,
+        horas_concluidas: 0,
+      };
+    }
+    const row = byTech[key];
+    row.total_tarefas += 1;
+    row.horas_planejadas += Number(t.horas) || 0;
+    if (t.tecnico_tipo === 'EQUIPE') row.tecnico_tipo = 'EQUIPE';
+    if (t.done) {
+      row.tarefas_concluidas += 1;
+      row.horas_concluidas += Number(t.horas) || 0;
+    }
+  });
+  const rows = Object.values(byTech).sort((a, b) => b.horas_planejadas - a.horas_planejadas);
+  // Mantém TEAM sincronizado para outros usos
+  TEAM = rows;
+
   techBody.innerHTML = rows.length
     ? rows.map(d => {
       const planned = Number(d.horas_planejadas) || 0;
-      const done = Number(d.horas_concluidas) || 0;
-      const pct = planned > 0 ? (done / planned * 100) : 0;
-      const color = pct >= 99.9 ? 'var(--green)' : 'var(--amber)';
+      const doneH = Number(d.horas_concluidas) || 0;
+      const pct = planned > 0 ? (doneH / planned * 100) : 0;
+      const color = pct >= 99.9 ? 'var(--green)' : (pct > 0 ? 'var(--amber)' : 'var(--text-dim)');
       const isEquipe = d.tecnico_tipo === 'EQUIPE';
       const label = isEquipe
         ? `${d.tecnico} <span class="badge-equipe">EQUIPE</span>`
         : d.tecnico;
       return `
         <div style="display:flex; align-items:center; gap:14px; padding:6px 0; border-bottom:1px solid var(--border-soft); flex-wrap:wrap;">
-          <div style="width:110px; font-family:var(--font-mono); font-size:12px;">${label}</div>
+          <div style="min-width:110px; max-width:160px; font-family:var(--font-mono); font-size:12px;">${label}</div>
           <div style="flex:1; min-width:120px; height:14px; background:var(--panel-alt); border-radius:3px; overflow:hidden;">
-            <div style="height:100%; width:${pct.toFixed(1)}%; background:${color};"></div>
+            <div style="height:100%; width:${Math.min(100, pct).toFixed(1)}%; background:${color};"></div>
           </div>
-          <div style="width:140px; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">${done.toFixed(1)}h / ${planned.toFixed(1)}h</div>
+          <div style="width:140px; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">${doneH.toFixed(1)}h / ${planned.toFixed(1)}h</div>
           <div style="width:80px; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">${d.tarefas_concluidas}/${d.total_tarefas}</div>
           <div style="width:46px; text-align:right; font-family:var(--font-mono); font-size:13px; font-weight:600; color:${color};">${pct.toFixed(0)}%</div>
         </div>`;
@@ -760,20 +786,42 @@ document.getElementById('importFileInput')?.addEventListener('change', async (e)
   try {
     const text = await file.text();
     const json = JSON.parse(text);
+
+    // Trava de disciplina: area do JSON é obrigatória e deve coincidir com a área ativa no painel
     if (!json.area) {
-      const use = confirm(
-        'O JSON não tem o campo "area".\\nUsar a área atual (' + CURRENT_AREA + ')?'
+      alert(
+        'Importação bloqueada.\\n\\n' +
+        'O JSON precisa do campo "area" com o valor da disciplina:\\n' +
+        'ELETRICA, MECANICA ou TGM.\\n\\n' +
+        'Disciplina ativa no painel: ' + (AREA_LABELS[CURRENT_AREA] || CURRENT_AREA) + ' (' + CURRENT_AREA + ').'
       );
-      if (!use) { e.target.value = ''; return; }
-      json.area = CURRENT_AREA;
+      return;
     }
-    const data = await api('/api/import', { method: 'POST', body: JSON.stringify(json) });
+    const mapArea = { ELETRICA: 'ELETRICA', ELECTRICA: 'ELETRICA', MECANICA: 'MECANICA', MECHANICA: 'MECANICA', TGM: 'TGM' };
+    const fileAreaRaw = String(json.area).trim().toUpperCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const fileArea = mapArea[fileAreaRaw] || null;
+    if (!fileArea) {
+      alert('Campo "area" inválido no JSON. Use ELETRICA, MECANICA ou TGM.');
+      return;
+    }
+    if (fileArea !== CURRENT_AREA) {
+      alert(
+        'Importação bloqueada — disciplina divergente.\n\n' +
+        'Arquivo JSON: ' + (AREA_LABELS[fileArea] || fileArea) + ' (' + fileArea + ')\n' +
+        'Painel ativo: ' + (AREA_LABELS[CURRENT_AREA] || CURRENT_AREA) + ' (' + CURRENT_AREA + ')\n\n' +
+        'Selecione no header a mesma disciplina do arquivo e tente de novo.\n' +
+        'Um JSON de TGM não pode ser importado em Elétrica/Mecânica (e vice-versa).'
+      );
+      return;
+    }
+    json.area = fileArea;
+
+    const data = await api('/api/import?area=' + encodeURIComponent(CURRENT_AREA), {
+      method: 'POST',
+      body: JSON.stringify(json),
+    });
     alert('Cronograma importado: ' + data.totalTarefas + ' atividades em ' + (AREA_LABELS[data.area] || data.area) + '.');
-    if (data.area && data.area !== CURRENT_AREA) {
-      CURRENT_AREA = data.area;
-      localStorage.setItem('pcm_area', CURRENT_AREA);
-      syncAreaSwitcher();
-    }
     collapsedState = {};
     if (sCurveChart) { sCurveChart.destroy(); sCurveChart = null; }
     await reloadData();
