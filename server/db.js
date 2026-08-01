@@ -26,11 +26,54 @@ async function init() {
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
-      password_hash TEXT NOT NULL,
-      role TEXT NOT NULL CHECK (role IN ('admin','supervisor','operador')),
-      nome TEXT NOT NULL,
+      password_hash TEXT,
+      role TEXT,
+      nome TEXT,
       tecnico TEXT
     );
+  `);
+
+  // Garante colunas do schema atual (tabelas antigas/parciais no Render)
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'password_hash'
+      ) THEN
+        ALTER TABLE users ADD COLUMN password_hash TEXT;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'role'
+      ) THEN
+        ALTER TABLE users ADD COLUMN role TEXT;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'nome'
+      ) THEN
+        ALTER TABLE users ADD COLUMN nome TEXT;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'tecnico'
+      ) THEN
+        ALTER TABLE users ADD COLUMN tecnico TEXT;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'area_scope'
+      ) THEN
+        ALTER TABLE users ADD COLUMN area_scope TEXT;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'users' AND column_name = 'username'
+      ) THEN
+        ALTER TABLE users ADD COLUMN username TEXT;
+      END IF;
+    END $$;
   `);
 
   // Legacy single-area schema (may already exist from previous deploys)
@@ -214,6 +257,28 @@ async function init() {
       );
     }
     console.log('Usuarios criados: admin, supervisor, e', SEED.tecnicos.length, 'operadores.');
+  } else {
+    // Repara usuários sem senha (schema antigo / tabela parcial)
+    const adminHash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10);
+    const supHash = await bcrypt.hash(DEFAULT_SUPERVISOR_PASSWORD, 10);
+    await pool.query(
+      `INSERT INTO users (username, password_hash, role, nome, tecnico)
+       VALUES ('admin', $1, 'admin', 'Administrador', NULL)
+       ON CONFLICT (username) DO UPDATE SET
+         password_hash = COALESCE(users.password_hash, EXCLUDED.password_hash),
+         role = COALESCE(users.role, EXCLUDED.role),
+         nome = COALESCE(users.nome, EXCLUDED.nome)`,
+      [adminHash]
+    );
+    await pool.query(
+      `INSERT INTO users (username, password_hash, role, nome, tecnico)
+       VALUES ('supervisor', $1, 'supervisor', 'Supervisor PCM', NULL)
+       ON CONFLICT (username) DO UPDATE SET
+         password_hash = COALESCE(users.password_hash, EXCLUDED.password_hash),
+         role = COALESCE(users.role, EXCLUDED.role),
+         nome = COALESCE(users.nome, EXCLUDED.nome)`,
+      [supHash]
+    );
   }
 
   // Garante usuário supertgm (supervisor só da área TGM) — mesmo se a tabela já tinha usuários
