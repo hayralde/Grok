@@ -1,0 +1,20 @@
+{
+  "name": "grok",
+  "version": "4.0.0.9",
+  "description": "PCM Painel de Acompanhamento multi-area (Eletrica/Mecanica/TGM) - projeto grok",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0 <27"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.11.5",
+    "socket.io": "^4.7.5"
+  }
+}

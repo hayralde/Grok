@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Parada Programada — Painel de Acompanhamento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.min.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ---------- LOGIN MODAL (opcional) ---------- -->
+<div id="loginModalOverlay" class="modal-overlay hidden">
+  <div class="modal-box" style="width:360px;">
+    <h3>Entrar</h3>
+    <p>Login opcional — operadores marcam atividades; admin importa/reseta.</p>
+    <input type="text" id="loginUsername" placeholder="Usuário" autocomplete="username">
+    <input type="password" id="loginPassword" placeholder="Senha" autocomplete="current-password">
+    <div id="loginError" class="login-error hidden">Usuário ou senha inválidos.</div>
+    <div class="modal-actions">
+      <button class="toolbtn" id="loginCancelBtn">Cancelar</button>
+      <button class="btn-primary" id="loginBtn" style="width:auto; padding:9px 18px; margin:0;">Entrar</button>
+    </div>
+    <div class="login-hint">Operadores: usuário = seu nome (ex: lucas) · senha padrão fornecida pelo supervisor</div>
+  </div>
+</div>
+
+<!-- ---------- APP SHELL (sempre visível) ---------- -->
+<div id="appShell">
+  <header>
+    <div class="header-left">
+      <div class="eyebrow">PCM · Painel de Acompanhamento em Tempo Real <span id="appVersion" style="opacity:0.6;">V 4.0.0.9</span></div>
+      <h1>Parada Programada — Agosto 2026</h1>
+      <div class="sub" id="headerSub">Elétrica</div>
+    </div>
+    <div class="header-right">
+      <div class="area-switcher" id="areaSwitcher">
+        <button class="area-btn active" data-area="ELETRICA">Elétrica</button>
+        <button class="area-btn" data-area="MECANICA">Mecânica</button>
+        <button class="area-btn" data-area="TGM">TGM</button>
+      </div>
+      <div class="user-badge">
+        <div class="user-name" id="userName">Visitante</div>
+        <div class="user-role" id="userRole">leitura</div>
+      </div>
+      <button class="toolbtn" id="loginOpenBtn">Entrar</button>
+      <button class="toolbtn hidden" id="logoutBtn">Sair</button>
+    </div>
+  </header>
+
+  <div id="areaHelpText" class="area-help" style="display:none;"></div>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tab-btn" data-tab="tarefas">Tarefas</button>
+    <button class="tab-btn" data-tab="gantt">Gantt</button>
+    <button class="tab-btn" data-tab="scurve">Curva S</button>
+    <button class="tab-btn" data-tab="equipe">Equipe</button>
+  </nav>
+
+  <main>
+
+    <!-- ===== TAB: TAREFAS ===== -->
+    <section id="tab-tarefas" class="tab-panel">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 id="tarefasTitle">Atividades</h2>
+            <div class="panel-sub" id="tarefasSub">—</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="chip-row" id="statusChips">
+            <button class="chip active" data-status="todas">Todas</button>
+            <button class="chip" data-status="pendentes">Pendentes</button>
+            <button class="chip" data-status="concluidas">Concluídas</button>
+          </div>
+          <div class="chip-row" id="dateChips"></div>
+          <div class="chip-row" id="techChips"></div>
+          <div id="tarefasList" class="tarefas-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TAB: GANTT ===== -->
+    <section id="tab-gantt" class="tab-panel">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Cronograma — Linha do Tempo</h2>
+            <div class="panel-sub">Andamento por operador &middot; clique num setor para recolher/expandir</div>
+          </div>
+          <button class="toolbtn" id="toggleAllGanttBtn">Recolher Todos</button>
+        </div>
+        <div class="gantt-wrap">
+          <div class="gantt-left" id="ganttLeft"></div>
+          <div class="gantt-right" id="ganttRight">
+            <div class="gantt-scale" id="ganttScale"></div>
+            <div class="gantt-track-area" id="ganttTrackArea"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <!-- ===== TAB: CURVA S ===== -->
+    <section id="tab-scurve" class="tab-panel">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Curva S — Avanço Físico</h2>
+            <div class="panel-sub">Planejado vs. Real (em tempo real, compartilhado entre todos os usuários)</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="legend-row" style="justify-content:space-between; align-items:flex-end;">
+            <div style="display:flex; gap:20px;">
+              <div class="legend-item"><span class="legend-swatch" style="background:var(--amber)"></span> Planejado</div>
+              <div class="legend-item"><span class="legend-swatch" style="background:var(--green)"></span> Real</div>
+            </div>
+            <div style="display:flex; gap:18px;">
+              <div style="text-align:right;">
+                <div class="readout-label">Planejado até hoje</div>
+                <div class="readout-value" id="plannedNowReadout" style="color:var(--amber);">0.0%</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="readout-label">Real até hoje</div>
+                <div class="readout-value" id="realNowReadout" style="color:var(--green);">0.0%</div>
+              </div>
+            </div>
+          </div>
+          <div class="chart-box chart-box-scurve"><canvas id="sCurveChart"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== TAB: EQUIPE ===== -->
+    <section id="tab-equipe" class="tab-panel">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Status Geral</h2>
+            <div class="panel-sub">Visão consolidada de conclusão do cronograma</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px;" id="adminControls" class="hidden">
+            <input type="file" id="importFileInput" accept=".json" class="hidden">
+            <button class="toolbtn" id="importBtn">Importar Cronograma (JSON)</button>
+            <button class="toolbtn" id="resetBtn" style="border-color:var(--red); color:var(--red);">Resetar Progresso</button>
+          </div>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <div class="kpi-strip5" id="statusCardsRow"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2 id="hoursChartTitle">Horas por Responsável</h2>
+            <div class="panel-sub" id="hoursChartSub">Planejado vs. Executado</div>
+          </div>
+        </div>
+        <div class="panel-body" id="techPanelBody"></div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer>PCM · projeto grok &middot; dados compartilhados em tempo real via servidor</footer>
+</div>
+
+<!-- ---------- Reset confirmation modal ---------- -->
+<div id="resetModalOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <h3 style="color:var(--red);">Resetar Progresso</h3>
+    <p>Isso vai marcar novamente TODAS as atividades da área <strong id="resetAreaLabel">—</strong> como não concluídas. Essa ação não pode ser desfeita. Digite a senha para confirmar.</p>
+    <input type="password" id="resetPasswordInput" placeholder="Senha">
+    <div id="resetErrorMsg" class="login-error hidden">Senha incorreta.</div>
+    <div class="modal-actions">
+      <button class="toolbtn" id="resetCancelBtn">Cancelar</button>
+      <button class="toolbtn" id="resetConfirmBtn" style="border-color:var(--red); color:var(--red);">Confirmar Reset</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
