@@ -739,25 +739,50 @@ function renderEquipe() {
     </div>
   `;
 
+  // Horas por técnico/equipe: mesma fonte do STATUS GERAL (TASKS), sempre em sincronia
   const techBody = document.getElementById('techPanelBody');
-  const rows = TEAM.slice().sort((a, b) => b.horas_planejadas - a.horas_planejadas);
+  const byTech = {};
+  TASKS.forEach(t => {
+    const key = t.tecnico || '(sem responsável)';
+    if (!byTech[key]) {
+      byTech[key] = {
+        tecnico: key,
+        tecnico_tipo: t.tecnico_tipo || 'PESSOA',
+        total_tarefas: 0,
+        tarefas_concluidas: 0,
+        horas_planejadas: 0,
+        horas_concluidas: 0,
+      };
+    }
+    const row = byTech[key];
+    row.total_tarefas += 1;
+    row.horas_planejadas += Number(t.horas) || 0;
+    if (t.tecnico_tipo === 'EQUIPE') row.tecnico_tipo = 'EQUIPE';
+    if (t.done) {
+      row.tarefas_concluidas += 1;
+      row.horas_concluidas += Number(t.horas) || 0;
+    }
+  });
+  const rows = Object.values(byTech).sort((a, b) => b.horas_planejadas - a.horas_planejadas);
+  TEAM = rows;
+
   techBody.innerHTML = rows.length
     ? rows.map(d => {
       const planned = Number(d.horas_planejadas) || 0;
-      const done = Number(d.horas_concluidas) || 0;
-      const pct = planned > 0 ? (done / planned * 100) : 0;
-      const color = pct >= 99.9 ? 'var(--green)' : 'var(--amber)';
+      const doneH = Number(d.horas_concluidas) || 0;
+      const pct = planned > 0 ? (doneH / planned * 100) : 0;
+      const color = pct >= 99.9 ? 'var(--green)' : (pct > 0 ? 'var(--amber)' : 'var(--text-dim)');
       const isEquipe = d.tecnico_tipo === 'EQUIPE';
       const label = isEquipe
         ? `${d.tecnico} <span class="badge-equipe">EQUIPE</span>`
         : d.tecnico;
       return `
         <div style="display:flex; align-items:center; gap:14px; padding:6px 0; border-bottom:1px solid var(--border-soft); flex-wrap:wrap;">
-          <div style="width:110px; font-family:var(--font-mono); font-size:12px;">${label}</div>
+          <div style="min-width:110px; max-width:160px; font-family:var(--font-mono); font-size:12px;">${label}</div>
           <div style="flex:1; min-width:120px; height:14px; background:var(--panel-alt); border-radius:3px; overflow:hidden;">
-            <div style="height:100%; width:${pct.toFixed(1)}%; background:${color};"></div>
+            <div style="height:100%; width:${Math.min(100, pct).toFixed(1)}%; background:${color};"></div>
           </div>
-          <div style="width:140px; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">${done.toFixed(1)}h / ${planned.toFixed(1)}h</div>
+          <div style="width:140px; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--text-muted);">${doneH.toFixed(1)}h / ${planned.toFixed(1)}h</div>
           <div style="width:80px; text-align:right; font-family:var(--font-mono); font-size:11px; color:var(--text-dim);">${d.tarefas_concluidas}/${d.total_tarefas}</div>
           <div style="width:46px; text-align:right; font-family:var(--font-mono); font-size:13px; font-weight:600; color:${color};">${pct.toFixed(0)}%</div>
         </div>`;
