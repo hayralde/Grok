@@ -22,56 +22,44 @@ const DEFAULT_SUPERVISOR_PASSWORD = process.env.SUPERVISOR_PASSWORD || 'super123
 const DEFAULT_OPERATOR_PASSWORD = process.env.OPERATOR_PASSWORD || '1234';
 
 async function init() {
+  // Schema de usuários do PCM. Se a tabela veio de outro app (ex.: full_name NOT NULL), recria.
+  const { rows: userCols } = await pool.query(`
+    SELECT column_name FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'users'
+  `);
+  const colNames = userCols.map(r => r.column_name);
+  const needsUsersRebuild = colNames.length > 0 && (
+    colNames.includes('full_name') ||
+    !colNames.includes('password_hash') ||
+    !colNames.includes('username') ||
+    !colNames.includes('role')
+  );
+  if (needsUsersRebuild) {
+    console.log('Tabela users incompatível com o PCM — recriando schema de usuários...');
+    await pool.query('DROP TABLE IF EXISTS users CASCADE');
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id SERIAL PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
-      password_hash TEXT,
-      role TEXT,
-      nome TEXT,
-      tecnico TEXT
+      password_hash TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('admin','supervisor','operador')),
+      nome TEXT NOT NULL,
+      tecnico TEXT,
+      area_scope TEXT
     );
   `);
 
-  // Garante colunas do schema atual (tabelas antigas/parciais no Render)
+  // Colunas extras em deploys parciais
   await pool.query(`
     DO $$
     BEGIN
       IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'users' AND column_name = 'password_hash'
-      ) THEN
-        ALTER TABLE users ADD COLUMN password_hash TEXT;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'users' AND column_name = 'role'
-      ) THEN
-        ALTER TABLE users ADD COLUMN role TEXT;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'users' AND column_name = 'nome'
-      ) THEN
-        ALTER TABLE users ADD COLUMN nome TEXT;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'users' AND column_name = 'tecnico'
-      ) THEN
-        ALTER TABLE users ADD COLUMN tecnico TEXT;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
         WHERE table_name = 'users' AND column_name = 'area_scope'
       ) THEN
         ALTER TABLE users ADD COLUMN area_scope TEXT;
-      END IF;
-      IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'users' AND column_name = 'username'
-      ) THEN
-        ALTER TABLE users ADD COLUMN username TEXT;
       END IF;
     END $$;
   `);
