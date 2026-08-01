@@ -1,32 +1,20 @@
-databases:
-  - name: grok-db
-    plan: free
-    databaseName: parada
-    user: parada
-
 services:
   - type: web
     name: grok
     runtime: node
     plan: free
-    # Se o repositório tiver a pasta "grok/" na raiz, descomente a linha abaixo:
-    # rootDir: grok
     buildCommand: npm install
     startCommand: npm start
     envVars:
+      - key: NODE_VERSION
+        value: "20.11.0"
       - key: DATABASE_URL
         fromDatabase:
-          name: grok-db
+          name: grok
           property: connectionString
       - key: JWT_SECRET
         generateValue: true
-      - key: RESET_PASSWORD
-        value: "654321"
       - key: ADMIN_PASSWORD
-        value: "admin123"
+        sync: false
       - key: SUPERVISOR_PASSWORD
-        value: "super123"
-      - key: OPERATOR_PASSWORD
-        value: "1234"
-      - key: NODE_ENV
-        value: production
+        sync: false
