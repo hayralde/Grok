@@ -77,6 +77,83 @@ app.get('/api/areas', (_req, res) => {
   res.json({ areas: listAreas(), default: DEFAULT_AREA });
 });
 
+/** Dashboard visitante: KPIs + pontos da Curva S das 3 áreas */
+app.get('/api/dashboard', authOptional, async (req, res) => {
+  try {
+    const result = {};
+    for (const area of AREAS) {
+      const cfg = getAreaConfig(area);
+      const { rows: metaRows } = await pool.query(
+        'SELECT key, value FROM meta WHERE key LIKE $1',
+        [area + ':%']
+      );
+      const meta = {};
+      metaRows.forEach(r => {
+        meta[r.key.slice(area.length + 1)] = r.value;
+      });
+      const { rows: tasks } = await pool.query(
+        'SELECT id, inicio, fim, horas, done FROM tasks WHERE area = $1 ORDER BY id',
+        [area]
+      );
+
+      const total = tasks.length;
+      const doneCount = tasks.filter(t => t.done).length;
+      const pendCount = total - doneCount;
+      const horasTotal = tasks.reduce((s, t) => s + (Number(t.horas) || 0), 0);
+      const horasDone = tasks.filter(t => t.done).reduce((s, t) => s + (Number(t.horas) || 0), 0);
+      const pctAtividades = total > 0 ? (doneCount / total) * 100 : 0;
+      const pctHoras = horasTotal > 0 ? (horasDone / horasTotal) * 100 : 0;
+
+      let labels = [];
+      let planned = [];
+      let real = [];
+      const ps = meta.projectStart ? new Date(meta.projectStart) : null;
+      const pf = meta.projectFinish ? new Date(meta.projectFinish) : null;
+      if (ps && pf && !isNaN(ps.getTime()) && !isNaN(pf.getTime()) && pf > ps && horasTotal > 0) {
+        const dayMs = 24 * 3600 * 1000;
+        let cur = new Date(ps);
+        cur.setHours(0, 0, 0, 0);
+        const end = new Date(pf);
+        end.setHours(23, 59, 59, 999);
+        while (cur <= end) {
+          const dayEnd = new Date(cur);
+          dayEnd.setHours(23, 59, 59, 999);
+          labels.push(cur.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }));
+          const pH = tasks
+            .filter(t => new Date(t.fim) <= dayEnd)
+            .reduce((s, t) => s + (Number(t.horas) || 0), 0);
+          planned.push(+(pH / horasTotal * 100).toFixed(2));
+          // Mesma lógica da Curva S do painel: concluídas cujo fim planejado já passou
+          const rH = tasks
+            .filter(t => t.done && new Date(t.fim) <= dayEnd)
+            .reduce((s, t) => s + (Number(t.horas) || 0), 0);
+          real.push(+(rH / horasTotal * 100).toFixed(2));
+          cur = new Date(cur.getTime() + dayMs);
+        }
+      }
+
+      result[area] = {
+        id: area,
+        label: (cfg && cfg.label) || area,
+        projectStart: meta.projectStart || null,
+        projectFinish: meta.projectFinish || null,
+        total,
+        done: doneCount,
+        pending: pendCount,
+        pctAtividades: +pctAtividades.toFixed(1),
+        horasTotal: +horasTotal.toFixed(1),
+        horasDone: +horasDone.toFixed(1),
+        pctHoras: +pctHoras.toFixed(1),
+        curve: { labels, planned, real },
+      };
+    }
+    res.json({ areas: result, order: AREAS });
+  } catch (e) {
+    console.error('dashboard error', e);
+    res.status(500).json({ error: 'Erro ao montar dashboard' });
+  }
+});
+
 // ---------- Meta (public read) ----------
 app.get('/api/meta', authOptional, async (req, res) => {
   const area = resolveArea(req);

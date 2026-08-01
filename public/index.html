@@ -32,7 +32,7 @@
 <div id="appShell">
   <header>
     <div class="header-left">
-      <div class="eyebrow">PCM · Painel de Acompanhamento em Tempo Real <span id="appVersion" style="opacity:0.6;">V 4.0.1.9</span></div>
+      <div class="eyebrow">PCM · Painel de Acompanhamento em Tempo Real <span id="appVersion" style="opacity:0.6;">V 4.0.2.0</span></div>
       <h1>Parada Programada — Agosto 2026</h1>
       <div class="sub" id="headerSub">Elétrica</div>
     </div>
@@ -54,6 +54,7 @@
   <div id="areaHelpText" class="area-help" style="display:none;"></div>
 
   <nav class="tabbar" id="tabbar">
+    <button class="tab-btn active" data-tab="home">Início</button>
     <button class="tab-btn" data-tab="tarefas">Tarefas</button>
     <button class="tab-btn" data-tab="gantt">Gantt</button>
     <button class="tab-btn" data-tab="scurve">Curva S</button>
@@ -61,6 +62,23 @@
   </nav>
 
   <main>
+
+    <!-- ===== TAB: INÍCIO (visitante / visão consolidada) ===== -->
+    <section id="tab-home" class="tab-panel active">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <h2>Visão Geral da Parada</h2>
+            <div class="panel-sub">Indicadores e Curva S das três disciplinas · atualização em tempo real</div>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div id="homeGrid" class="home-grid">
+            <div class="home-loading">Carregando indicadores…</div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <!-- ===== TAB: TAREFAS ===== -->
     <section id="tab-tarefas" class="tab-panel">

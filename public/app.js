@@ -12,6 +12,8 @@ let dateFilter = 'todas';
 let techFilter = 'todos';
 let collapsedState = {};
 let sCurveChart = null;
+let homeCharts = {}; // area -> Chart
+let HOME_DATA = null;
 const MARCOS_PALETTE = ['mb-purple','mb-blue','mb-teal','mb-orange','mb-yellow','mb-red','mb-green','mb-gray'];
 
 
@@ -192,14 +194,16 @@ async function reloadData() {
 
 function setupTabsForRole() {
   const tabbar = document.getElementById('tabbar');
-  const all = ['tarefas', 'gantt', 'scurve', 'equipe'];
-  let visible = all;
+  let visible;
   if (!USER) {
-    visible = ['gantt', 'scurve', 'equipe'];
+    visible = ['home', 'gantt', 'scurve', 'equipe'];
   } else if (USER.role === 'operador') {
     visible = ['tarefas'];
   } else if (USER.role === 'supervisor') {
-    visible = ['tarefas', 'gantt', 'scurve', 'equipe'];
+    visible = ['home', 'tarefas', 'gantt', 'scurve', 'equipe'];
+  } else {
+    // admin
+    visible = ['home', 'tarefas', 'gantt', 'scurve', 'equipe'];
   }
 
   tabbar.querySelectorAll('.tab-btn').forEach(btn => {
@@ -217,10 +221,15 @@ function setupTabsForRole() {
 function activateTab(tab) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.getAttribute('data-tab') === tab));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+  if (tab === 'home') {
+    renderHome();
+    setTimeout(() => {
+      Object.values(homeCharts).forEach(ch => { try { ch.resize(); } catch (_) {} });
+    }, 50);
+  }
   if (tab === 'gantt') renderGantt();
   if (tab === 'scurve') {
     renderSCurve();
-    // garante que o canvas preencha a área alta após a aba ficar visível
     if (sCurveChart) setTimeout(() => { try { sCurveChart.resize(); } catch (_) {} }, 40);
   }
   if (tab === 'equipe') renderEquipe();
@@ -271,19 +280,31 @@ function setupSocket() {
   if (socket) return;
   socket = io();
   socket.on('task-updated', (task) => {
-    if (task.area && task.area !== CURRENT_AREA) return;
-    const idx = TASKS.findIndex(t => t.id === task.id);
-    if (idx >= 0) TASKS[idx] = task;
-    else TASKS.push(task);
+    if (task.area && task.area === CURRENT_AREA) {
+      const idx = TASKS.findIndex(t => t.id === task.id);
+      if (idx >= 0) TASKS[idx] = task;
+      else TASKS.push(task);
+    }
+    // Dashboard visitante precisa atualizar mesmo se a área ativa for outra
+    HOME_DATA = null;
     renderAll();
   });
   socket.on('progress-reset', async (payload) => {
-    if (payload && payload.area && payload.area !== CURRENT_AREA) return;
+    HOME_DATA = null;
+    if (payload && payload.area && payload.area !== CURRENT_AREA) {
+      const homeBtn = document.querySelector('.tab-btn[data-tab="home"]');
+      if (homeBtn && homeBtn.style.display !== 'none') renderHome();
+      return;
+    }
     await reloadData();
     renderAll();
   });
   socket.on('cronograma-importado', async (payload) => {
-    if (payload && payload.area && payload.area !== CURRENT_AREA) return;
+    HOME_DATA = null;
+    if (payload && payload.area && payload.area !== CURRENT_AREA) {
+      renderHome();
+      return;
+    }
     collapsedState = {};
     if (sCurveChart) { sCurveChart.destroy(); sCurveChart = null; }
     await reloadData();
@@ -317,6 +338,7 @@ async function toggleTask(id, done) {
     });
     const idx = TASKS.findIndex(t => t.id === id);
     if (idx >= 0) TASKS[idx].done = done;
+    HOME_DATA = null;
     renderAll();
   } catch (e) {
     alert('Erro ao atualizar atividade: ' + e.message);
@@ -788,6 +810,168 @@ function renderEquipe() {
         </div>`;
     }).join('')
     : '<div style="padding:12px;color:var(--text-dim);">Nenhum responsável nesta área ainda.</div>';
+}
+
+
+// ================= TAB: Início (dashboard 3 disciplinas) =================
+async function loadHomeData(force) {
+  if (HOME_DATA && !force) return HOME_DATA;
+  const res = await fetch('/api/dashboard');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Erro ao carregar dashboard');
+  HOME_DATA = data;
+  return data;
+}
+
+function destroyHomeCharts() {
+  Object.keys(homeCharts).forEach(k => {
+    try { homeCharts[k].destroy(); } catch (_) {}
+    delete homeCharts[k];
+  });
+}
+
+async function renderHome() {
+  const grid = document.getElementById('homeGrid');
+  if (!grid) return;
+
+  try {
+    const data = await loadHomeData(true);
+    const order = data.order || ['ELETRICA', 'MECANICA', 'TGM'];
+    const areas = data.areas || {};
+
+    destroyHomeCharts();
+    grid.innerHTML = order.map(id => {
+      const a = areas[id];
+      if (!a) return '';
+      const hasTasks = a.total > 0;
+      return `
+        <div class="home-card" data-area="${id}">
+          <div class="home-card-head">
+            <div class="home-card-title">${a.label || id}</div>
+            <button type="button" class="toolbtn home-card-open" data-open-area="${id}">Abrir</button>
+          </div>
+          <div class="home-kpis">
+            <div class="home-kpi">
+              <div class="home-kpi-label">Concluídas</div>
+              <div class="home-kpi-value green">${a.done}</div>
+              <div class="home-kpi-sub">${Number(a.horasDone || 0).toFixed(0)} h</div>
+            </div>
+            <div class="home-kpi">
+              <div class="home-kpi-label">Pendentes</div>
+              <div class="home-kpi-value amber">${a.pending}</div>
+              <div class="home-kpi-sub">${Math.max(0, Number(a.horasTotal || 0) - Number(a.horasDone || 0)).toFixed(0)} h</div>
+            </div>
+            <div class="home-kpi">
+              <div class="home-kpi-label">% Atividades</div>
+              <div class="home-kpi-value blue">${Number(a.pctAtividades || 0).toFixed(1)}%</div>
+              <div class="home-kpi-sub">${a.done}/${a.total}</div>
+            </div>
+          </div>
+          <div class="home-legend">
+            <span class="lg-plan">Planejado</span>
+            <span class="lg-real">Real</span>
+          </div>
+          <div class="home-chart-wrap">
+            ${hasTasks && a.curve && a.curve.labels && a.curve.labels.length
+              ? `<canvas id="homeChart_${id}"></canvas>`
+              : `<div class="home-empty">${hasTasks ? 'Sem horizonte de datas para Curva S' : 'Sem cronograma importado nesta disciplina'}</div>`}
+          </div>
+        </div>`;
+    }).join('');
+
+    grid.querySelectorAll('[data-open-area]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const area = btn.getAttribute('data-open-area');
+        if (!area || area === CURRENT_AREA) {
+          activateTab(USER && USER.role === 'operador' ? 'tarefas' : 'gantt');
+          return;
+        }
+        // Reusa a troca de área do switcher
+        const areaBtn = document.querySelector('#areaSwitcher .area-btn[data-area="' + area + '"]');
+        if (areaBtn) {
+          areaBtn.click();
+          setTimeout(() => activateTab('gantt'), 100);
+        }
+      });
+    });
+
+    order.forEach(id => {
+      const a = areas[id];
+      if (!a || !a.curve || !a.curve.labels || !a.curve.labels.length) return;
+      const canvas = document.getElementById('homeChart_' + id);
+      if (!canvas || typeof Chart === 'undefined') return;
+      homeCharts[id] = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels: a.curve.labels,
+          datasets: [
+            {
+              label: 'Planejado (%)',
+              data: a.curve.planned,
+              borderColor: '#F0A430',
+              backgroundColor: 'rgba(240,164,48,0.08)',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 3,
+              fill: true,
+              tension: 0.25,
+            },
+            {
+              label: 'Real (%)',
+              data: a.curve.real,
+              borderColor: '#33C481',
+              backgroundColor: 'rgba(51,196,129,0.12)',
+              borderWidth: 2,
+              pointRadius: 0,
+              pointHoverRadius: 3,
+              fill: true,
+              tension: 0.25,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#121821',
+              titleFont: { family: 'IBM Plex Mono', size: 10 },
+              bodyFont: { family: 'IBM Plex Mono', size: 11 },
+              callbacks: {
+                label: (ctx) => ' ' + ctx.dataset.label + ': ' + Number(ctx.parsed.y).toFixed(1) + '%',
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { color: '#1A222B' },
+              ticks: {
+                color: '#8494A3',
+                font: { family: 'IBM Plex Mono', size: 9 },
+                maxRotation: 0,
+                autoSkip: true,
+                maxTicksLimit: 6,
+              },
+            },
+            y: {
+              min: 0,
+              max: 100,
+              grid: { color: '#1A222B' },
+              ticks: {
+                color: '#8494A3',
+                font: { family: 'IBM Plex Mono', size: 9 },
+                callback: (v) => v + '%',
+              },
+            },
+          },
+        },
+      });
+    });
+  } catch (e) {
+    grid.innerHTML = '<div class="home-loading">Erro ao carregar: ' + (e.message || e) + '</div>';
+  }
 }
 
 // ================= Import cronograma (admin) =================
