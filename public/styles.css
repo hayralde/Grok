@@ -249,46 +249,68 @@ input[type=checkbox].task-check:checked::after{
 }
 
 /* ---------- Gantt ---------- */
-.gantt-wrap{ display:flex; align-items: stretch; }
-.gantt-left{
-  flex: 0 0 380px;
-  border-right: 1px solid var(--border);
-  overflow: hidden;
-  box-sizing: border-box;
+.gantt-wrap{ display:flex; flex-direction:column; width:100%; }
+.gantt-header{
+  display:flex;
+  align-items:stretch;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--panel);
 }
-.gantt-right{ flex: 1; overflow-x: auto; position: relative; box-sizing: border-box; }
-.gantt-left-scale,
+.gantt-left-scale{
+  flex: 0 0 380px;
+  width: 380px;
+  box-sizing: border-box;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  display:flex;
+  align-items:center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  background: var(--panel-alt);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.4px;
+}
 .gantt-scale{
+  flex: 1;
+  position: relative;
   height: 28px;
   min-height: 28px;
   max-height: 28px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--border);
   background: var(--panel-alt);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-dim);
+  overflow: hidden;
 }
-.gantt-left-scale{
-  display: flex;
-  align-items: center;
-  padding: 0 10px;
-  letter-spacing: 0.4px;
-}
-.gantt-scale{ position: relative; display:flex; }
 .gantt-scale .tick{
   position:absolute; top:0; bottom:0;
   border-left: 1px solid var(--border-soft);
   font-family: var(--font-mono); font-size: 10px; color: var(--text-dim);
   padding: 6px 0 0 4px; white-space:nowrap;
+  line-height: 1;
 }
-.gantt-track-area{ position: relative; }
+.gantt-body{ display:flex; flex-direction:column; width:100%; }
+.gantt-row{
+  display:flex;
+  align-items:stretch;
+  width:100%;
+  min-height: 28px;
+  height: 28px;
+}
 .row-left{
+  flex: 0 0 380px;
+  width: 380px;
   display:flex; align-items:center; gap: 8px;
   height: 28px; min-height: 28px; max-height: 28px;
   box-sizing: border-box;
   padding: 0 10px;
   border-bottom: 1px solid var(--border-soft);
+  border-right: 1px solid var(--border);
   font-size: 12px;
 }
 .row-left.sector-row{
@@ -306,11 +328,14 @@ input[type=checkbox].task-check:checked::after{
 .row-left .task-tech{ font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); width: 60px; flex-shrink:0; }
 .sector-count{ font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); margin-left: auto; }
 .gantt-row-track{
+  flex: 1;
   position: relative;
   height: 28px; min-height: 28px; max-height: 28px;
   box-sizing: border-box;
   border-bottom: 1px solid var(--border-soft);
+  overflow: hidden;
 }
+.gantt-empty{ padding:20px; color:var(--text-dim); }
 .bar{ position:absolute; top: 5px; height: 18px; border-radius: 3px; box-sizing: border-box; }
 .bar.status-pending{ background: var(--amber); }
 .bar.status-done{ background: var(--green); }
@@ -336,7 +361,7 @@ footer{ text-align:center; padding: 20px; font-size: 11px; color: var(--text-dim
   main{ padding: 10px 12px 40px; }
   .tabbar{ padding: 0 10px; }
   .kpi-strip5{ grid-template-columns: repeat(2,1fr); }
-  .gantt-left{ flex-basis: 220px; }
+  .gantt-left-scale, .row-left{ flex-basis: 220px; width: 220px; }
   .row-left .task-tech{ display:none; }
 
   /* task list becomes stacked cards */
@@ -416,21 +441,23 @@ footer{ text-align:center; padding: 20px; font-size: 11px; color: var(--text-dim
 .bar.sector-bar{
   top: 5px;
   height: 18px;
-  background: #2a3340;
+  background: #1a222b;
   opacity: 1;
   overflow: hidden;
   display: flex;
   align-items: center;
   border: 1px solid #3a4554;
+  position: absolute;
 }
 .sector-bar-fill{
   position: absolute;
   left: 0; top: 0; bottom: 0;
   width: 0%;
   background: var(--amber);
-  opacity: 0.85;
+  opacity: 0.95;
   transition: width 0.35s ease;
   border-radius: 3px 0 0 3px;
+  z-index: 0;
 }
 .sector-bar-fill.progress{ background: var(--amber); }
 .sector-bar-fill.complete{ background: var(--green); border-radius: 3px; }

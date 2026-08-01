@@ -443,15 +443,13 @@ document.getElementById('toggleAllGanttBtn')?.addEventListener('click', () => {
 });
 
 function renderGantt() {
-  const ganttLeft = document.getElementById('ganttLeft');
-  const ganttTrackArea = document.getElementById('ganttTrackArea');
+  const ganttBody = document.getElementById('ganttBody');
   const ganttScale = document.getElementById('ganttScale');
-  if (!ganttLeft) return;
+  if (!ganttBody || !ganttScale) return;
 
   if (!META.projectStart || !META.projectFinish) {
-    ganttLeft.innerHTML = '<div class="gantt-left-scale">SETOR / ATIVIDADE</div><div style="padding:20px;color:var(--text-dim);">Sem cronograma nesta área.</div>';
-    ganttTrackArea.innerHTML = '';
     ganttScale.innerHTML = '';
+    ganttBody.innerHTML = '<div class="gantt-empty">Sem cronograma nesta área.</div>';
     return;
   }
 
@@ -464,7 +462,7 @@ function renderGantt() {
   let cur = new Date(PROJECT_START); cur.setHours(0, 0, 0, 0);
   while (cur <= PROJECT_FINISH) {
     const left = ((cur - PROJECT_START) / TOTAL_MS) * 100;
-    if (left >= 0) {
+    if (left >= 0 && left <= 100) {
       const tick = document.createElement('div');
       tick.className = 'tick';
       tick.style.left = left + '%';
@@ -486,14 +484,8 @@ function renderGantt() {
     if (!orderedSectors.includes(s)) orderedSectors.push(s);
   });
 
-  ganttLeft.innerHTML = '';
-  ganttTrackArea.innerHTML = '';
-
-  // Espaço à esquerda alinhado à escala de datas (direita) — evita desvio vertical das barras
-  const leftScale = document.createElement('div');
-  leftScale.className = 'gantt-left-scale';
-  leftScale.textContent = 'SETOR / ATIVIDADE';
-  ganttLeft.appendChild(leftScale);
+  ganttBody.innerHTML = '';
+  let rowCount = 0;
 
   orderedSectors.forEach(sector => {
     const tasks = tasksBySector[sector];
@@ -501,62 +493,80 @@ function renderGantt() {
     const sStart = tasks.reduce((m, t) => Math.min(m, new Date(t.inicio)), Infinity);
     const sFinish = tasks.reduce((m, t) => Math.max(m, new Date(t.fim)), -Infinity);
     const doneCount = tasks.filter(t => t.done).length;
-
     if (collapsedState[sector] === undefined) collapsedState[sector] = true;
+
+    const hoursTotal = tasks.reduce((s, t) => s + (Number(t.horas) || 0), 0);
+    const hoursDone = tasks.filter(t => t.done).reduce((s, t) => s + (Number(t.horas) || 0), 0);
+    const pctByHours = hoursTotal > 0 ? (hoursDone / hoursTotal) * 100 : 0;
+    const pctByCount = tasks.length ? (doneCount / tasks.length) * 100 : 0;
+    // Usa horas; se horas zeradas, usa contagem. Garante avanço visual ao concluir tarefas.
+    const pctProgress = hoursTotal > 0 ? pctByHours : pctByCount;
+
+    // Linha do setor: rótulo + barra na MESMA row (alinhamento garantido)
+    const secRow = document.createElement('div');
+    secRow.className = 'gantt-row';
 
     const secLeft = document.createElement('div');
     secLeft.className = 'row-left sector-row' + (collapsedState[sector] ? ' collapsed' : '');
     secLeft.innerHTML = `<span class="chev">&#9660;</span><span class="task-name">${sector}</span><span class="sector-count">${doneCount}/${tasks.length}</span>`;
     secLeft.onclick = () => { collapsedState[sector] = !collapsedState[sector]; renderGantt(); };
-    ganttLeft.appendChild(secLeft);
 
     const secTrack = document.createElement('div');
     secTrack.className = 'gantt-row-track';
-    const hoursTotal = tasks.reduce((s, t) => s + (Number(t.horas) || 0), 0);
-    const hoursDone = tasks.filter(t => t.done).reduce((s, t) => s + (Number(t.horas) || 0), 0);
-    const pctProgress = hoursTotal > 0 ? (hoursDone / hoursTotal) * 100 : (tasks.length ? (doneCount / tasks.length) * 100 : 0);
-
     const secBar = document.createElement('div');
     secBar.className = 'bar sector-bar';
-    secBar.style.left = (((sStart - PROJECT_START) / TOTAL_MS) * 100) + '%';
-    secBar.style.width = Math.max((((sFinish - sStart) / TOTAL_MS) * 100), 0.3) + '%';
+    const leftPct = Math.max(0, ((sStart - PROJECT_START) / TOTAL_MS) * 100);
+    const widthPct = Math.max((((sFinish - sStart) / TOTAL_MS) * 100), 0.4);
+    secBar.style.left = leftPct + '%';
+    secBar.style.width = widthPct + '%';
+    secBar.style.minWidth = '12px';
     secBar.title = sector + ': ' + doneCount + '/' + tasks.length + ' · ' + hoursDone.toFixed(1) + 'h / ' + hoursTotal.toFixed(1) + 'h (' + pctProgress.toFixed(0) + '%)';
-
     const secFill = document.createElement('div');
     secFill.className = 'sector-bar-fill' + (pctProgress >= 99.9 ? ' complete' : (pctProgress > 0 ? ' progress' : ''));
     secFill.style.width = Math.min(100, Math.max(0, pctProgress)) + '%';
     secBar.appendChild(secFill);
-
     const secLabel = document.createElement('span');
     secLabel.className = 'sector-bar-pct';
     secLabel.textContent = pctProgress.toFixed(0) + '%';
+    if (doneCount > 0 && pctProgress < 1) secLabel.textContent = '<1%';
     secBar.appendChild(secLabel);
-
     secTrack.appendChild(secBar);
-    ganttTrackArea.appendChild(secTrack);
+
+    secRow.appendChild(secLeft);
+    secRow.appendChild(secTrack);
+    ganttBody.appendChild(secRow);
+    rowCount++;
 
     if (collapsedState[sector]) return;
 
     tasks.forEach(t => {
+      const taskRow = document.createElement('div');
+      taskRow.className = 'gantt-row';
+
       const rowLeft = document.createElement('div');
       rowLeft.className = 'row-left';
       rowLeft.innerHTML = `<span class="task-name" title="${t.nome}">${t.nome}</span><span class="task-tech">${t.tecnico}${t.tecnico_tipo === 'EQUIPE' ? ' ·EQ' : ''}</span>`;
-      ganttLeft.appendChild(rowLeft);
 
       const track = document.createElement('div');
       track.className = 'gantt-row-track';
       const bar = document.createElement('div');
       bar.className = 'bar ' + (t.done ? 'status-done' : 'status-pending');
-      bar.style.left = (((new Date(t.inicio) - PROJECT_START) / TOTAL_MS) * 100) + '%';
-      bar.style.width = Math.max((((new Date(t.fim) - new Date(t.inicio)) / TOTAL_MS) * 100), 0.15) + '%';
+      bar.style.left = Math.max(0, ((new Date(t.inicio) - PROJECT_START) / TOTAL_MS) * 100) + '%';
+      const wPct = Math.max((((new Date(t.fim) - new Date(t.inicio)) / TOTAL_MS) * 100), 0.25);
+      bar.style.width = wPct + '%';
+      bar.style.minWidth = t.done ? '10px' : '6px';
       bar.title = t.nome + ' (' + t.tecnico + ', ' + t.horas + 'h)';
       track.appendChild(bar);
-      ganttTrackArea.appendChild(track);
+
+      taskRow.appendChild(rowLeft);
+      taskRow.appendChild(track);
+      ganttBody.appendChild(taskRow);
+      rowCount++;
     });
   });
 
-  if (!ganttLeft.children.length) {
-    ganttLeft.innerHTML = '<div style="padding:20px;color:var(--text-dim);">Sem atividades nesta área.</div>';
+  if (!rowCount) {
+    ganttBody.innerHTML = '<div class="gantt-empty">Sem atividades nesta área.</div>';
   }
 }
 
