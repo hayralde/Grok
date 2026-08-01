@@ -473,3 +473,20 @@ footer{ text-align:center; padding: 20px; font-size: 11px; color: var(--text-dim
   pointer-events: none;
 }
 #techChips{ margin-top: 4px; }
+
+
+/* Clique na linha/texto marca a atividade */
+.tarefa-row-clickable{
+  cursor: pointer;
+}
+.tarefa-row-clickable:hover{
+  background: rgba(255,255,255,0.03);
+}
+.tarefa-row-clickable .tf-main{
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.tarefa-row .tf-name{
+  user-select: none;
+}
