@@ -6,11 +6,14 @@
       const tabbar = document.getElementById('tabbar');
       let visible;
       if (!USER) {
-        visible = ['home'];
+        // CORRIGIDO: visitante vê home + custos
+        visible = ['home', 'custos'];
       } else if (USER.role === 'operador') {
-        visible = ['tarefas'];
+        // CORRIGIDO: operador vê tarefas + custos
+        visible = ['tarefas', 'custos'];
       } else {
-        visible = ['tarefas', 'gantt', 'scurve', 'equipe'];
+        // supervisor e admin veem tudo incluindo custos
+        visible = ['tarefas', 'gantt', 'scurve', 'equipe', 'custos'];
       }
       tabbar.querySelectorAll('.tab-btn').forEach(btn => {
         const t = btn.getAttribute('data-tab');
