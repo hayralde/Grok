@@ -1,7 +1,14 @@
-const { Pool } = require('pg');
+const { Pool, types } = require('pg');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+
+// Por padrão o driver 'pg' converte colunas DATE (OID 1082) em objetos Date do
+// JS. O restante do código (custos_seed.json, validação de import, e o front-end)
+// trabalha com strings 'YYYY-MM-DD'. Sem isso, comparações/ordenações que chamam
+// métodos de string (ex.: localeCompare) em cima de data_inicio/data_fim quebram
+// em runtime (ver /api/custos/resumo). Mantém o valor cru 'YYYY-MM-DD' como string.
+types.setTypeParser(1082, (val) => val);
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
