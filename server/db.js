@@ -281,6 +281,20 @@ async function init() {
     END $$;
   `);
 
+  // oculto: item fica fora da visão de operador/supervisor/visitante, mas o admin
+  // continua enxergando (e podendo reverter) em "Todos os Custos".
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'custos' AND column_name = 'oculto'
+      ) THEN
+        ALTER TABLE custos ADD COLUMN oculto BOOLEAN NOT NULL DEFAULT FALSE;
+      END IF;
+    END $$;
+  `);
+
   const { rows: custoCount } = await pool.query('SELECT COUNT(*)::int AS n FROM custos');
   if (custoCount[0].n === 0) {
     console.log('Semeando', CUSTOS_SEED.length, 'itens de custo (planilha de origem)...');

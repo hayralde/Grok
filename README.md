@@ -112,9 +112,10 @@ banco está vazio. Mecânica e TGM começam vazias até o primeiro import.
 
 ## Aba Custos (v4.0.2.2)
 
-Nova aba **Custos**, visível a todos os perfis (inclusive visitante), transversal às
-três áreas (Elétrica/Mecânica/TGM) — não é uma "área" com escopo de login, é um
-painel consolidado de contratos/serviços de terceiros da parada.
+Nova aba **Custos**, visível a todos os perfis logados (operador, supervisor, admin
+— visitante não vê), transversal às três áreas (Elétrica/Mecânica/TGM) — não é uma
+"área" com escopo de login, é um painel consolidado de contratos/serviços de
+terceiros da parada.
 
 **Dados iniciais**: carregados a partir da planilha `Planilha_de_Custos.xlsx`
 enviada (6 itens). A planilha não tinha uma coluna "Disciplina", então cada item
@@ -137,17 +138,20 @@ corrigido a qualquer momento.
 valor, data início/fim, responsável, contato, status
 (Pendente/Em andamento/Concluído/Cancelado) e observação.
 
-**Permissões**: leitura pública para todos (mesmo padrão do restante do painel).
-Criar/editar/excluir/importar/alterar status é restrito ao **admin**.
+**Permissões**: exige login (operador, supervisor ou admin) — **visitante não vê a
+aba Custos**. Criar/editar/excluir/importar/alterar status/ocultar é restrito ao
+**admin**. Itens marcados como "oculto" somem da visão de operador/supervisor;
+o admin continua vendo tudo (com selo "Oculto") para poder reverter.
 
 **Rotas da API:**
 | Rota | Método | Quem | Descrição |
 |---|---|---|---|
-| `/api/custos` | GET | público | Lista completa |
-| `/api/custos/resumo` | GET | público | KPIs, total por disciplina/fornecedor, Curva ABC, pendências |
+| `/api/custos` | GET | logado (qualquer papel) | Lista completa (ocultos só para admin) |
+| `/api/custos/resumo` | GET | logado (qualquer papel) | KPIs, total por disciplina/fornecedor, Curva ABC, pendências |
 | `/api/custos` | POST | admin | Cria item |
 | `/api/custos/:id` | PUT | admin | Edita item (parcial) |
 | `/api/custos/:id/status` | PATCH | admin | Atualiza só o status |
+| `/api/custos/:id/ocultar` | PATCH | admin | Oculta/reexibe item — body `{ "oculto": true }` |
 | `/api/custos/:id` | DELETE | admin | Exclui item |
 | `/api/custos/import` | POST | admin | Substitui toda a lista — body `{ "items": [...] }` |
 

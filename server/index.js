@@ -495,17 +495,22 @@ function custoRowToJson(r) {
     contato: r.contato,
     status: r.status,
     observacao: r.observacao,
+    oculto: !!r.oculto,
     updated_at: r.updated_at,
   };
 }
 
-// Lista completa — leitura pública (mesmo padrão do restante do painel: visitante só-leitura)
-app.get('/api/custos', authOptional, async (_req, res) => {
+// Aba Custos NÃO é pública: exige login (operador/supervisor/admin). Visitante não vê.
+// Itens marcados "oculto" somem para quem não é admin (admin continua vendo tudo,
+// para poder gerenciar/reverter em "Todos os Custos").
+app.get('/api/custos', authRequired, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT * FROM custos ORDER BY data_inicio ASC NULLS LAST, id ASC`
     );
-    res.json({ custos: rows.map(custoRowToJson), disciplinas: CUSTO_DISCIPLINAS, status: CUSTO_STATUS });
+    const isAdmin = req.user && req.user.role === 'admin';
+    const visiveis = isAdmin ? rows : rows.filter(r => !r.oculto);
+    res.json({ custos: visiveis.map(custoRowToJson), disciplinas: CUSTO_DISCIPLINAS, status: CUSTO_STATUS });
   } catch (e) {
     console.error('custos list error', e);
     res.status(500).json({ error: 'Erro ao listar custos' });
@@ -513,9 +518,11 @@ app.get('/api/custos', authOptional, async (_req, res) => {
 });
 
 // Painel consolidado — total por disciplina, por fornecedor, geral, Curva ABC e pendências
-app.get('/api/custos/resumo', authOptional, async (_req, res) => {
+app.get('/api/custos/resumo', authRequired, async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT * FROM custos ORDER BY valor DESC, id ASC`);
+    const { rows: allRows } = await pool.query(`SELECT * FROM custos ORDER BY valor DESC, id ASC`);
+    const isAdmin = req.user && req.user.role === 'admin';
+    const rows = isAdmin ? allRows : allRows.filter(r => !r.oculto);
     const ativos = rows.filter(r => r.status !== 'CANCELADO');
 
     const totalGeral = ativos.reduce((s, r) => s + (Number(r.valor) || 0), 0);
@@ -710,6 +717,24 @@ app.patch('/api/custos/:id/status', authRequired, requireRole('admin'), async (r
 });
 
 // Excluir item de custo — admin
+// Ocultar/reexibir um item — some da visão de operador/supervisor, admin continua vendo
+app.patch('/api/custos/:id/ocultar', authRequired, requireRole('admin'), async (req, res) => {
+  const id = Number(req.params.id);
+  const oculto = !!(req.body || {}).oculto;
+  try {
+    const { rows, rowCount } = await pool.query(
+      `UPDATE custos SET oculto = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+      [id, oculto]
+    );
+    if (!rowCount) return res.status(404).json({ error: 'Item não encontrado' });
+    io.emit('custos-atualizado', { tipo: 'oculto', id });
+    res.json(custoRowToJson(rows[0]));
+  } catch (e) {
+    console.error('custos ocultar error', e);
+    res.status(500).json({ error: 'Erro ao ocultar/reexibir item' });
+  }
+});
+
 app.delete('/api/custos/:id', authRequired, requireRole('admin'), async (req, res) => {
   const id = parseInt(req.params.id, 10);
   try {

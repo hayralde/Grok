@@ -657,6 +657,12 @@ table.data-table td.small-muted{ color:var(--text-dim); font-size:11.5px; }
   color:var(--text-muted); border:1px solid var(--border);
 }
 
+.custo-row-oculto{ opacity:.55; }
+.badge-oculto{
+  display:inline-block; margin-left:6px; padding:1px 7px; border-radius:10px;
+  font-size:11px; font-weight:600; letter-spacing:.02em;
+  background:rgba(229,72,77,.15); color:var(--red); border:1px solid rgba(229,72,77,.35);
+}
 .row-actions{ display:flex; gap:6px; }
 .row-actions button{
   background:none; border:1px solid var(--border); color:var(--text-muted);

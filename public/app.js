@@ -238,8 +238,8 @@ function setupTabsForRole() {
   const tabbar = document.getElementById('tabbar');
   let visible;
   if (!USER) {
-    // Visitante: página inicial (resumo das 3 disciplinas) + Custos (leitura)
-    visible = ['home', 'custos'];
+    // Visitante: só a página inicial (resumo das 3 disciplinas). Custos exige login.
+    visible = ['home'];
   } else if (USER.role === 'operador') {
     visible = ['tarefas', 'custos'];
   } else if (USER.role === 'supervisor') {
@@ -1020,16 +1020,11 @@ async function renderHome() {
 
 // ================= TAB: Custos =================
 async function loadCustos() {
-  const res = await fetch('/api/custos');
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erro ao carregar custos');
+  const data = await api('/api/custos');
   CUSTOS = data.custos || [];
 }
 async function loadCustosResumo() {
-  const res = await fetch('/api/custos/resumo');
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Erro ao carregar resumo de custos');
-  CUSTOS_RESUMO = data;
+  CUSTOS_RESUMO = await api('/api/custos/resumo');
 }
 
 function fmtBRL(v) {
@@ -1295,8 +1290,8 @@ function renderCustosTable() {
   if (custosStatusFilter !== 'todas') list = list.filter(c => c.status === custosStatusFilter);
 
   tbody.innerHTML = list.length ? list.map(c => `
-    <tr>
-      <td>${c.fornecedor}</td>
+    <tr${c.oculto ? ' class="custo-row-oculto"' : ''}>
+      <td>${c.fornecedor}${isAdmin && c.oculto ? ' <span class="badge-oculto">Oculto</span>' : ''}</td>
       <td>${DISCIPLINA_LABELS[c.disciplina] || c.disciplina}</td>
       <td class="small-muted">${c.atividade || '—'}</td>
       <td class="num">${fmtBRL(c.valor)}</td>
@@ -1305,6 +1300,7 @@ function renderCustosTable() {
       <td>${isAdmin ? statusSelectHtml(c.id, c.status) : statusBadgeHtml(c.status)}</td>
       ${isAdmin ? `<td><div class="row-actions">
           <button data-edit="${c.id}">Editar</button>
+          <button data-toggle-oculto="${c.id}" data-oculto="${c.oculto ? '1' : '0'}">${c.oculto ? 'Mostrar' : 'Ocultar'}</button>
           <button data-del="${c.id}" class="danger">Excluir</button>
         </div></td>` : ''}
     </tr>`).join('') : `<tr class="table-empty-row"><td colspan="${isAdmin ? 8 : 7}">Nenhum item encontrado para este filtro.</td></tr>`;
@@ -1314,9 +1310,24 @@ function renderCustosTable() {
     tbody.querySelectorAll('[data-edit]').forEach(btn => {
       btn.addEventListener('click', () => openCustoModal(btn.getAttribute('data-edit')));
     });
+    tbody.querySelectorAll('[data-toggle-oculto]').forEach(btn => {
+      btn.addEventListener('click', () => toggleOcultarCusto(
+        btn.getAttribute('data-toggle-oculto'),
+        btn.getAttribute('data-oculto') !== '1'
+      ));
+    });
     tbody.querySelectorAll('[data-del]').forEach(btn => {
       btn.addEventListener('click', () => deleteCusto(btn.getAttribute('data-del')));
     });
+  }
+}
+
+async function toggleOcultarCusto(id, oculto) {
+  try {
+    await api('/api/custos/' + id + '/ocultar', { method: 'PATCH', body: JSON.stringify({ oculto }) });
+    await renderCustos();
+  } catch (e) {
+    alert('Erro ao ' + (oculto ? 'ocultar' : 'reexibir') + ' item: ' + e.message);
   }
 }
 
