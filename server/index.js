@@ -517,12 +517,15 @@ app.get('/api/custos', authRequired, async (req, res) => {
   }
 });
 
-// Painel consolidado — total por disciplina, por fornecedor, geral, Curva ABC e pendências
-app.get('/api/custos/resumo', authRequired, async (req, res) => {
+// Painel consolidado — total por disciplina, por fornecedor, geral, Curva ABC e pendências.
+// "oculto" aqui vale para TODO MUNDO, inclusive admin: é um outro panorama dos custos,
+// como se aquele fornecedor não existisse — os totais, gráficos, Curva ABC e pendências
+// são recalculados sem ele. (A lista "Todos os Custos" — /api/custos — é a exceção: lá o
+// admin continua vendo o item, esmaecido, só para poder reativá-lo.)
+app.get('/api/custos/resumo', authRequired, async (_req, res) => {
   try {
     const { rows: allRows } = await pool.query(`SELECT * FROM custos ORDER BY valor DESC, id ASC`);
-    const isAdmin = req.user && req.user.role === 'admin';
-    const rows = isAdmin ? allRows : allRows.filter(r => !r.oculto);
+    const rows = allRows.filter(r => !r.oculto);
     const ativos = rows.filter(r => r.status !== 'CANCELADO');
 
     const totalGeral = ativos.reduce((s, r) => s + (Number(r.valor) || 0), 0);

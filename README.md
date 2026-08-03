@@ -140,8 +140,11 @@ valor, data início/fim, responsável, contato, status
 
 **Permissões**: exige login (operador, supervisor ou admin) — **visitante não vê a
 aba Custos**. Criar/editar/excluir/importar/alterar status/ocultar é restrito ao
-**admin**. Itens marcados como "oculto" somem da visão de operador/supervisor;
-o admin continua vendo tudo (com selo "Oculto") para poder reverter.
+**admin**. **Ocultar** é um "outro panorama": o item some dos KPIs, Total por
+disciplina/fornecedor, Curva ABC e pendências **para todo mundo, inclusive admin**
+— como se aquele fornecedor não existisse nos totais. A única exceção é a lista
+"Todos os Custos", onde o admin continua vendo o item (esmaecido, com selo
+"Oculto") para poder reativá-lo quando quiser.
 
 **Rotas da API:**
 | Rota | Método | Quem | Descrição |
