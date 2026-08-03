@@ -5,7 +5,7 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
 
-const { pool, init, AREAS, DEFAULT_AREA, normalizeArea } = require('./db');
+const { pool, init, AREAS, DEFAULT_AREA, normalizeArea, CUSTO_DISCIPLINAS, CUSTO_STATUS } = require('./db');
 const { signToken, authRequired, authOptional, requireRole } = require('./auth');
 const { getAreaConfig, listAreas } = require('./areaConfig');
 
@@ -460,6 +460,326 @@ app.post('/api/import', authRequired, requireRole('admin'), async (req, res) => 
     tarefasEquipe: equipes,
     tarefasPessoa: normalized.length - equipes,
   });
+});
+
+// ================= Custos (aba "Custos" — transversal às áreas) =================
+
+function normalizeDisciplina(raw) {
+  if (!raw) return null;
+  const v = String(raw).trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (CUSTO_DISCIPLINAS.includes(v)) return v;
+  if (v === 'ELETRICA' || v === 'ELECTRICA') return 'ELETRICA';
+  if (v === 'MECANICA' || v === 'MECHANICA') return 'MECANICA';
+  if (v === 'INSTRUMENTACAO' || v === 'INSTRUMENTOS') return 'INSTRUMENTACAO';
+  return null;
+}
+function normalizeCustoStatus(raw) {
+  if (!raw) return 'PENDENTE';
+  const v = String(raw).trim().toUpperCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_');
+  return CUSTO_STATUS.includes(v) ? v : null;
+}
+
+function custoRowToJson(r) {
+  return {
+    id: r.id,
+    fornecedor: r.fornecedor,
+    disciplina: r.disciplina,
+    atividade: r.atividade,
+    escopo: r.escopo,
+    valor: Number(r.valor) || 0,
+    data_inicio: r.data_inicio,
+    data_fim: r.data_fim,
+    responsavel: r.responsavel,
+    contato: r.contato,
+    status: r.status,
+    observacao: r.observacao,
+    updated_at: r.updated_at,
+  };
+}
+
+// Lista completa — leitura pública (mesmo padrão do restante do painel: visitante só-leitura)
+app.get('/api/custos', authOptional, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM custos ORDER BY data_inicio ASC NULLS LAST, id ASC`
+    );
+    res.json({ custos: rows.map(custoRowToJson), disciplinas: CUSTO_DISCIPLINAS, status: CUSTO_STATUS });
+  } catch (e) {
+    console.error('custos list error', e);
+    res.status(500).json({ error: 'Erro ao listar custos' });
+  }
+});
+
+// Painel consolidado — total por disciplina, por fornecedor, geral, Curva ABC e pendências
+app.get('/api/custos/resumo', authOptional, async (_req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM custos ORDER BY valor DESC, id ASC`);
+    const ativos = rows.filter(r => r.status !== 'CANCELADO');
+
+    const totalGeral = ativos.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const totalItens = rows.length;
+    const totalFornecedores = new Set(rows.map(r => (r.fornecedor || '').trim().toUpperCase())).size;
+
+    // ---- Total por disciplina ----
+    const discMap = {};
+    for (const r of ativos) {
+      const key = r.disciplina || 'OUTROS';
+      if (!discMap[key]) discMap[key] = { disciplina: key, valor: 0, itens: 0 };
+      discMap[key].valor += Number(r.valor) || 0;
+      discMap[key].itens += 1;
+    }
+    const porDisciplina = Object.values(discMap)
+      .map(d => ({ ...d, pct: totalGeral > 0 ? +(d.valor / totalGeral * 100).toFixed(1) : 0 }))
+      .sort((a, b) => b.valor - a.valor);
+
+    // ---- Total por fornecedor ----
+    const fornMap = {};
+    for (const r of ativos) {
+      const key = (r.fornecedor || 'Não informado').trim();
+      if (!fornMap[key]) fornMap[key] = { fornecedor: key, valor: 0, itens: 0 };
+      fornMap[key].valor += Number(r.valor) || 0;
+      fornMap[key].itens += 1;
+    }
+    const porFornecedor = Object.values(fornMap)
+      .map(f => ({ ...f, pct: totalGeral > 0 ? +(f.valor / totalGeral * 100).toFixed(1) : 0 }))
+      .sort((a, b) => b.valor - a.valor);
+
+    // ---- Curva ABC (Pareto por item de custo) ----
+    let acumulado = 0;
+    const curvaABC = ativos
+      .slice()
+      .sort((a, b) => Number(b.valor) - Number(a.valor))
+      .map((r, idx) => {
+        const valor = Number(r.valor) || 0;
+        acumulado += valor;
+        const pct = totalGeral > 0 ? (valor / totalGeral * 100) : 0;
+        const pctAcum = totalGeral > 0 ? (acumulado / totalGeral * 100) : 0;
+        const classe = pctAcum <= 80 ? 'A' : (pctAcum <= 95 ? 'B' : 'C');
+        return {
+          rank: idx + 1,
+          id: r.id,
+          fornecedor: r.fornecedor,
+          atividade: r.atividade,
+          disciplina: r.disciplina,
+          valor,
+          pct: +pct.toFixed(1),
+          pctAcum: +pctAcum.toFixed(1),
+          classe,
+        };
+      });
+    const resumoABC = ['A', 'B', 'C'].map(classe => {
+      const itens = curvaABC.filter(i => i.classe === classe);
+      const valor = itens.reduce((s, i) => s + i.valor, 0);
+      return { classe, itens: itens.length, valor, pct: totalGeral > 0 ? +(valor / totalGeral * 100).toFixed(1) : 0 };
+    });
+
+    // ---- Pendências ----
+    const hoje = new Date();
+    const pendencias = rows
+      .filter(r => r.status === 'PENDENTE' || r.status === 'EM_ANDAMENTO')
+      .map(r => {
+        const motivos = [];
+        if (r.status === 'PENDENTE') motivos.push('Serviço ainda não iniciado');
+        if (r.status === 'EM_ANDAMENTO') motivos.push('Serviço em andamento');
+        if (!r.responsavel) motivos.push('Responsável não informado');
+        if (!r.contato) motivos.push('Contato não informado');
+        if (r.data_fim && new Date(r.data_fim) < hoje && r.status !== 'CONCLUIDO') {
+          motivos.push('Prazo previsto já vencido');
+        }
+        return { ...custoRowToJson(r), motivos };
+      })
+      .sort((a, b) => (a.data_fim || '9999').localeCompare(b.data_fim || '9999'));
+
+    res.json({
+      totalGeral: +totalGeral.toFixed(2),
+      totalItens,
+      totalFornecedores,
+      totalPendencias: pendencias.length,
+      ticketMedio: totalItens > 0 ? +(totalGeral / totalItens).toFixed(2) : 0,
+      porDisciplina,
+      porFornecedor,
+      curvaABC,
+      resumoABC,
+      pendencias,
+    });
+  } catch (e) {
+    console.error('custos resumo error', e);
+    res.status(500).json({ error: 'Erro ao montar o painel de custos' });
+  }
+});
+
+function validateCustoBody(body, { partial } = {}) {
+  const errors = [];
+  const out = {};
+
+  if (!partial || body.fornecedor !== undefined) {
+    if (!body.fornecedor || !String(body.fornecedor).trim()) errors.push('"fornecedor" é obrigatório.');
+    out.fornecedor = String(body.fornecedor || '').trim();
+  }
+  if (!partial || body.disciplina !== undefined) {
+    const d = normalizeDisciplina(body.disciplina);
+    if (!d) errors.push(`"disciplina" inválida. Use: ${CUSTO_DISCIPLINAS.join(', ')}.`);
+    out.disciplina = d;
+  }
+  if (!partial || body.valor !== undefined) {
+    const v = Number(body.valor);
+    if (isNaN(v) || v < 0) errors.push('"valor" deve ser um número maior ou igual a 0.');
+    out.valor = v;
+  }
+  if (!partial || body.status !== undefined) {
+    const s = normalizeCustoStatus(body.status);
+    if (!s) errors.push(`"status" inválido. Use: ${CUSTO_STATUS.join(', ')}.`);
+    out.status = s;
+  }
+  if (body.data_inicio !== undefined) out.data_inicio = body.data_inicio || null;
+  if (body.data_fim !== undefined) out.data_fim = body.data_fim || null;
+  if (body.atividade !== undefined) out.atividade = body.atividade || null;
+  if (body.escopo !== undefined) out.escopo = body.escopo || null;
+  if (body.responsavel !== undefined) out.responsavel = body.responsavel || null;
+  if (body.contato !== undefined) out.contato = body.contato || null;
+  if (body.observacao !== undefined) out.observacao = body.observacao || null;
+
+  return { errors, out };
+}
+
+// Criar item de custo — admin
+app.post('/api/custos', authRequired, requireRole('admin'), async (req, res) => {
+  const { errors, out } = validateCustoBody(req.body || {});
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO custos (fornecedor, disciplina, atividade, escopo, valor, data_inicio, data_fim, responsavel, contato, status, observacao)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      [out.fornecedor, out.disciplina, out.atividade || null, out.escopo || null, out.valor,
+       out.data_inicio || null, out.data_fim || null, out.responsavel || null, out.contato || null,
+       out.status, out.observacao || null]
+    );
+    io.emit('custos-atualizado', { tipo: 'criado', id: rows[0].id });
+    res.json({ ok: true, custo: custoRowToJson(rows[0]) });
+  } catch (e) {
+    console.error('custo create error', e);
+    res.status(500).json({ error: 'Erro ao criar item de custo' });
+  }
+});
+
+// Editar item de custo (qualquer campo, inclusive status) — admin
+app.put('/api/custos/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const { errors, out } = validateCustoBody(req.body || {}, { partial: true });
+  if (errors.length) return res.status(400).json({ error: errors.join(' ') });
+
+  const fields = Object.keys(out);
+  if (fields.length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar.' });
+
+  const setSql = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+  try {
+    const { rows } = await pool.query(
+      `UPDATE custos SET ${setSql}, updated_at = now() WHERE id = $1 RETURNING *`,
+      [id, ...fields.map(f => out[f])]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Item de custo não encontrado.' });
+    io.emit('custos-atualizado', { tipo: 'editado', id });
+    res.json({ ok: true, custo: custoRowToJson(rows[0]) });
+  } catch (e) {
+    console.error('custo update error', e);
+    res.status(500).json({ error: 'Erro ao atualizar item de custo' });
+  }
+});
+
+// Atualização rápida de status (usada pela lista de pendências) — admin
+app.patch('/api/custos/:id/status', authRequired, requireRole('admin'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const status = normalizeCustoStatus((req.body || {}).status);
+  if (!status) return res.status(400).json({ error: `"status" inválido. Use: ${CUSTO_STATUS.join(', ')}.` });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE custos SET status = $2, updated_at = now() WHERE id = $1 RETURNING *`,
+      [id, status]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Item de custo não encontrado.' });
+    io.emit('custos-atualizado', { tipo: 'status', id });
+    res.json({ ok: true, custo: custoRowToJson(rows[0]) });
+  } catch (e) {
+    console.error('custo status error', e);
+    res.status(500).json({ error: 'Erro ao atualizar status' });
+  }
+});
+
+// Excluir item de custo — admin
+app.delete('/api/custos/:id', authRequired, requireRole('admin'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  try {
+    const { rowCount } = await pool.query('DELETE FROM custos WHERE id = $1', [id]);
+    if (!rowCount) return res.status(404).json({ error: 'Item de custo não encontrado.' });
+    io.emit('custos-atualizado', { tipo: 'excluido', id });
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('custo delete error', e);
+    res.status(500).json({ error: 'Erro ao excluir item de custo' });
+  }
+});
+
+// Importar planilha/JSON de custos (substitui a lista inteira) — admin
+// Body: { items: [ { fornecedor, disciplina, atividade, escopo, valor, data_inicio, data_fim, responsavel, contato, status, observacao }, ... ] }
+app.post('/api/custos/import', authRequired, requireRole('admin'), async (req, res) => {
+  const items = (req.body || {}).items;
+  if (!Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'JSON inválido. Esperado: { items: [...] }' });
+  }
+
+  const normalized = [];
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    if (!it.fornecedor || !String(it.fornecedor).trim()) {
+      return res.status(400).json({ error: `Item na posição ${i}: "fornecedor" é obrigatório.` });
+    }
+    const disciplina = normalizeDisciplina(it.disciplina) || 'OUTROS';
+    const valor = Number(it.valor);
+    if (isNaN(valor) || valor < 0) {
+      return res.status(400).json({ error: `Item na posição ${i} (${it.fornecedor}): "valor" inválido.` });
+    }
+    const status = normalizeCustoStatus(it.status) || 'PENDENTE';
+    normalized.push({
+      fornecedor: String(it.fornecedor).trim(),
+      disciplina,
+      atividade: it.atividade || null,
+      escopo: it.escopo || null,
+      valor,
+      data_inicio: it.data_inicio || null,
+      data_fim: it.data_fim || null,
+      responsavel: it.responsavel || null,
+      contato: it.contato || null,
+      status,
+      observacao: it.observacao || null,
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM custos');
+    for (const c of normalized) {
+      await client.query(
+        `INSERT INTO custos (fornecedor, disciplina, atividade, escopo, valor, data_inicio, data_fim, responsavel, contato, status, observacao)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [c.fornecedor, c.disciplina, c.atividade, c.escopo, c.valor, c.data_inicio, c.data_fim,
+         c.responsavel, c.contato, c.status, c.observacao]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: 'Erro ao importar custos: ' + err.message });
+  } finally {
+    client.release();
+  }
+
+  io.emit('custos-atualizado', { tipo: 'import' });
+  res.json({ ok: true, totalItens: normalized.length });
 });
 
 // ---------- Static frontend ----------

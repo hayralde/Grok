@@ -110,6 +110,73 @@ Regras:
 O `server/seed_data.json` continua sendo a carga inicial de **Elétrica** quando o
 banco está vazio. Mecânica e TGM começam vazias até o primeiro import.
 
+## Aba Custos (v4.0.2.2)
+
+Nova aba **Custos**, visível a todos os perfis (inclusive visitante), transversal às
+três áreas (Elétrica/Mecânica/TGM) — não é uma "área" com escopo de login, é um
+painel consolidado de contratos/serviços de terceiros da parada.
+
+**Dados iniciais**: carregados a partir da planilha `Planilha_de_Custos.xlsx`
+enviada (6 itens). A planilha não tinha uma coluna "Disciplina", então cada item
+foi classificado a partir da atividade/escopo (ex.: disjuntores MT → Elétrica;
+calibração de instrumentos → Instrumentação; revisão de turbina → TGM; andaime/
+gesso acartonado → Civil). Ajuste pela interface (Editar) ou reimporte um JSON
+corrigido a qualquer momento.
+
+**O que o painel mostra:**
+- Total por disciplina e por fornecedor (barras com % de participação).
+- Total geral da parada + ticket médio + nº de fornecedores/itens.
+- **Curva ABC**: itens ordenados por valor, classificados em A (até 80% do
+  valor acumulado), B (até 95%) e C (restante) — mostra onde focar a negociação
+  e o acompanhamento, já que poucos itens costumam concentrar a maior parte do custo.
+- **Lista de pendências**: itens com status "Pendente"/"Em andamento", prazo
+  vencido, ou com responsável/contato não informado — sinaliza itens de contrato/execução em aberto.
+- Tabela completa filtrável por disciplina/status, com CRUD para admin.
+
+**Campos de cada item de custo**: fornecedor, disciplina, atividade, escopo,
+valor, data início/fim, responsável, contato, status
+(Pendente/Em andamento/Concluído/Cancelado) e observação.
+
+**Permissões**: leitura pública para todos (mesmo padrão do restante do painel).
+Criar/editar/excluir/importar/alterar status é restrito ao **admin**.
+
+**Rotas da API:**
+| Rota | Método | Quem | Descrição |
+|---|---|---|---|
+| `/api/custos` | GET | público | Lista completa |
+| `/api/custos/resumo` | GET | público | KPIs, total por disciplina/fornecedor, Curva ABC, pendências |
+| `/api/custos` | POST | admin | Cria item |
+| `/api/custos/:id` | PUT | admin | Edita item (parcial) |
+| `/api/custos/:id/status` | PATCH | admin | Atualiza só o status |
+| `/api/custos/:id` | DELETE | admin | Exclui item |
+| `/api/custos/import` | POST | admin | Substitui toda a lista — body `{ "items": [...] }` |
+
+**Formato de importação (JSON):**
+```json
+{
+  "items": [
+    {
+      "fornecedor": "Techenerg",
+      "disciplina": "TGM",
+      "atividade": "Revisão / Inspeção",
+      "escopo": "Descrição do escopo...",
+      "valor": 86892,
+      "data_inicio": "2026-08-25",
+      "data_fim": "2026-09-05",
+      "responsavel": "Claudio Andrade",
+      "contato": "(19) 99214-1524",
+      "status": "PENDENTE",
+      "observacao": ""
+    }
+  ]
+}
+```
+`disciplina` aceita: `ELETRICA, MECANICA, TGM, INSTRUMENTACAO, CIVIL, OUTROS`.
+`status` aceita: `PENDENTE, EM_ANDAMENTO, CONCLUIDO, CANCELADO` (padrão: `PENDENTE`).
+
+Toda alteração (criar/editar/excluir/importar/status) dispara o evento Socket.io
+`custos-atualizado`, atualizando a aba em tempo real para todos os usuários conectados.
+
 ## Estrutura
 
 ```

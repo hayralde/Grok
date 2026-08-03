@@ -13,9 +13,16 @@ const pool = new Pool({
 const SEED = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'seed_data.json'), 'utf8')
 );
+const CUSTOS_SEED = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'custos_seed.json'), 'utf8')
+);
 
 const AREAS = ['ELETRICA', 'MECANICA', 'TGM'];
 const DEFAULT_AREA = 'ELETRICA';
+
+// Domínio da aba Custos — independente das áreas de cronograma acima.
+const CUSTO_DISCIPLINAS = ['ELETRICA', 'MECANICA', 'TGM', 'INSTRUMENTACAO', 'CIVIL', 'OUTROS'];
+const CUSTO_STATUS = ['PENDENTE', 'EM_ANDAMENTO', 'CONCLUIDO', 'CANCELADO'];
 
 const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 const DEFAULT_SUPERVISOR_PASSWORD = process.env.SUPERVISOR_PASSWORD || 'super123';
@@ -223,6 +230,67 @@ async function init() {
     }
   }
 
+  // ---- Tabela de Custos (aba "Custos") ----
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS custos (
+      id SERIAL PRIMARY KEY,
+      fornecedor TEXT NOT NULL,
+      disciplina TEXT NOT NULL DEFAULT 'OUTROS',
+      atividade TEXT,
+      escopo TEXT,
+      valor NUMERIC NOT NULL DEFAULT 0,
+      data_inicio DATE,
+      data_fim DATE,
+      responsavel TEXT,
+      contato TEXT,
+      status TEXT NOT NULL DEFAULT 'PENDENTE',
+      observacao TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'custos_disciplina_check'
+      ) THEN
+        ALTER TABLE custos ADD CONSTRAINT custos_disciplina_check
+          CHECK (disciplina IN ('${CUSTO_DISCIPLINAS.join("','")}'));
+      END IF;
+    END $$;
+  `);
+
+  await pool.query(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'custos_status_check'
+      ) THEN
+        ALTER TABLE custos ADD CONSTRAINT custos_status_check
+          CHECK (status IN ('${CUSTO_STATUS.join("','")}'));
+      END IF;
+    END $$;
+  `);
+
+  const { rows: custoCount } = await pool.query('SELECT COUNT(*)::int AS n FROM custos');
+  if (custoCount[0].n === 0) {
+    console.log('Semeando', CUSTOS_SEED.length, 'itens de custo (planilha de origem)...');
+    for (const c of CUSTOS_SEED) {
+      await pool.query(
+        `INSERT INTO custos
+           (id, fornecedor, disciplina, atividade, escopo, valor, data_inicio, data_fim, responsavel, contato, status, observacao)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (id) DO NOTHING`,
+        [c.id, c.fornecedor, c.disciplina, c.atividade, c.escopo, c.valor, c.data_inicio || null,
+         c.data_fim || null, c.responsavel || null, c.contato || null, c.status || 'PENDENTE', c.observacao || null]
+      );
+    }
+    // Garante que o próximo INSERT (via SERIAL) não colida com os ids semeados manualmente
+    await pool.query(`SELECT setval(pg_get_serial_sequence('custos','id'), (SELECT COALESCE(MAX(id),1) FROM custos))`);
+  }
+
   const { rows: userCount } = await pool.query('SELECT COUNT(*)::int AS n FROM users');
   if (userCount[0].n === 0) {
     console.log('Semeando usuarios...');
@@ -315,4 +383,4 @@ function normalizeArea(raw) {
   return null;
 }
 
-module.exports = { pool, init, AREAS, DEFAULT_AREA, normalizeArea };
+module.exports = { pool, init, AREAS, DEFAULT_AREA, normalizeArea, CUSTO_DISCIPLINAS, CUSTO_STATUS };

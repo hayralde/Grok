@@ -14,6 +14,26 @@ let collapsedState = {};
 let sCurveChart = null;
 let homeCharts = {}; // area -> Chart
 let HOME_DATA = null;
+
+// ---- Custos ----
+let CUSTOS = [];
+let CUSTOS_RESUMO = null;
+let custosDisciplinaFilter = 'todas';
+let custosStatusFilter = 'todas';
+let custoEditingId = null;
+let abcChart = null;
+
+const DISCIPLINA_LABELS = {
+  ELETRICA: 'Elétrica', MECANICA: 'Mecânica', TGM: 'TGM',
+  INSTRUMENTACAO: 'Instrumentação', CIVIL: 'Civil / Infra', OUTROS: 'Outros',
+};
+const DISCIPLINA_COLORS = {
+  ELETRICA: '#5B9FE3', MECANICA: '#F0A430', TGM: '#A78BFA',
+  INSTRUMENTACAO: '#2DD4BF', CIVIL: '#E5484D', OUTROS: '#8494A3',
+};
+const STATUS_LABELS = {
+  PENDENTE: 'Pendente', EM_ANDAMENTO: 'Em andamento', CONCLUIDO: 'Concluído', CANCELADO: 'Cancelado',
+};
 const MARCOS_PALETTE = ['mb-purple','mb-blue','mb-teal','mb-orange','mb-yellow','mb-red','mb-green','mb-gray'];
 
 
@@ -126,6 +146,10 @@ function applyUserUI() {
     loginBtn.classList.add('hidden');
     logoutBtn.classList.remove('hidden');
     adminControls.classList.toggle('hidden', USER.role !== 'admin');
+    const custosAdmin = document.getElementById('custosAdminControls');
+    if (custosAdmin) custosAdmin.classList.toggle('hidden', USER.role !== 'admin');
+    const custosAcoesHead = document.getElementById('custosAcoesHead');
+    if (custosAcoesHead) custosAcoesHead.classList.toggle('hidden', USER.role !== 'admin');
     if (areaSwitcher) {
       const hideSwitcher = USER.role === 'operador' || !!USER.area_scope;
       areaSwitcher.classList.toggle('hidden', hideSwitcher);
@@ -137,6 +161,10 @@ function applyUserUI() {
     loginBtn.classList.remove('hidden');
     logoutBtn.classList.add('hidden');
     adminControls.classList.add('hidden');
+    const custosAdmin = document.getElementById('custosAdminControls');
+    if (custosAdmin) custosAdmin.classList.add('hidden');
+    const custosAcoesHead = document.getElementById('custosAcoesHead');
+    if (custosAcoesHead) custosAcoesHead.classList.add('hidden');
     if (areaSwitcher) areaSwitcher.classList.add('hidden');
     if (areaHelp) {
       areaHelp.textContent = '';
@@ -210,14 +238,15 @@ function setupTabsForRole() {
   const tabbar = document.getElementById('tabbar');
   let visible;
   if (!USER) {
-    visible = ['home', 'gantt', 'scurve', 'equipe'];
+    // Visitante: página inicial (resumo das 3 disciplinas) + Custos (leitura)
+    visible = ['home', 'custos'];
   } else if (USER.role === 'operador') {
-    visible = ['tarefas'];
+    visible = ['tarefas', 'custos'];
   } else if (USER.role === 'supervisor') {
-    visible = ['home', 'tarefas', 'gantt', 'scurve', 'equipe'];
+    visible = ['tarefas', 'gantt', 'scurve', 'equipe', 'custos'];
   } else {
     // admin
-    visible = ['home', 'tarefas', 'gantt', 'scurve', 'equipe'];
+    visible = ['tarefas', 'gantt', 'scurve', 'equipe', 'custos'];
   }
 
   tabbar.querySelectorAll('.tab-btn').forEach(btn => {
@@ -248,6 +277,7 @@ function activateTab(tab) {
   }
   if (tab === 'equipe') renderEquipe();
   if (tab === 'tarefas') renderTarefas();
+  if (tab === 'custos') renderCustos();
 }
 
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -322,6 +352,13 @@ function setupSocket() {
     }
     await reloadData();
     renderAll();
+  });
+  socket.on('custos-atualizado', async () => {
+    const active = document.querySelector('.tab-btn.active');
+    if (active && active.getAttribute('data-tab') === 'custos') {
+      await loadCustos();
+      renderCustos();
+    }
   });
   socket.on('cronograma-importado', async (payload) => {
     HOME_DATA = null;
@@ -872,7 +909,6 @@ async function renderHome() {
         <div class="home-card" data-area="${id}">
           <div class="home-card-head">
             <div class="home-card-title">${a.label || id}</div>
-            <button type="button" class="toolbtn home-card-open" data-open-area="${id}">Abrir</button>
           </div>
           <div class="home-kpis">
             <div class="home-kpi">
@@ -902,22 +938,6 @@ async function renderHome() {
           </div>
         </div>`;
     }).join('');
-
-    grid.querySelectorAll('[data-open-area]').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const area = btn.getAttribute('data-open-area');
-        if (!area || area === CURRENT_AREA) {
-          activateTab(USER && USER.role === 'operador' ? 'tarefas' : 'gantt');
-          return;
-        }
-        // Reusa a troca de área do switcher
-        const areaBtn = document.querySelector('#areaSwitcher .area-btn[data-area="' + area + '"]');
-        if (areaBtn) {
-          areaBtn.click();
-          setTimeout(() => activateTab('gantt'), 100);
-        }
-      });
-    });
 
     order.forEach(id => {
       const a = areas[id];
@@ -997,6 +1017,405 @@ async function renderHome() {
     grid.innerHTML = '<div class="home-loading">Erro ao carregar: ' + (e.message || e) + '</div>';
   }
 }
+
+// ================= TAB: Custos =================
+async function loadCustos() {
+  const res = await fetch('/api/custos');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Erro ao carregar custos');
+  CUSTOS = data.custos || [];
+}
+async function loadCustosResumo() {
+  const res = await fetch('/api/custos/resumo');
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Erro ao carregar resumo de custos');
+  CUSTOS_RESUMO = data;
+}
+
+function fmtBRL(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
+}
+function fmtDateBR(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso + (String(iso).length <= 10 ? 'T00:00:00' : ''));
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+}
+function statusBadgeHtml(status) {
+  const cls = 'st-' + String(status || 'PENDENTE').toLowerCase();
+  return `<span class="status-badge ${cls}">${STATUS_LABELS[status] || status}</span>`;
+}
+function abcBadgeHtml(classe) {
+  return `<span class="abc-badge abc-${String(classe).toLowerCase()}">${classe}</span>`;
+}
+
+async function renderCustos() {
+  try {
+    await loadCustos();
+    await loadCustosResumo();
+  } catch (e) {
+    const kpiRow = document.getElementById('custosKpiRow');
+    if (kpiRow) kpiRow.innerHTML = `<div style="padding:14px; color:var(--red);">Erro ao carregar custos: ${e.message}</div>`;
+    return;
+  }
+  renderCustosKpis();
+  renderCustosBarList('custosPorDisciplina', CUSTOS_RESUMO.porDisciplina, 'disciplina', DISCIPLINA_LABELS, DISCIPLINA_COLORS);
+  renderCustosBarList('custosPorFornecedor', CUSTOS_RESUMO.porFornecedor, 'fornecedor', null, null, '#F0A430');
+  renderAbcChart();
+  renderAbcTable();
+  renderPendenciasTable();
+  renderCustosChips();
+  renderCustosTable();
+}
+
+function renderCustosKpis() {
+  const r = CUSTOS_RESUMO;
+  const row = document.getElementById('custosKpiRow');
+  if (!row || !r) return;
+  row.innerHTML = `
+    <div class="kpi">
+      <div class="kpi-label">Total Geral</div>
+      <div class="kpi-value" style="color:var(--amber); font-size:19px;">${fmtBRL(r.totalGeral)}</div>
+      <div class="kpi-sub">custo consolidado da parada</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Itens de Custo</div>
+      <div class="kpi-value">${r.totalItens}</div>
+      <div class="kpi-sub">contratos / serviços lançados</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Fornecedores</div>
+      <div class="kpi-value" style="color:var(--blue);">${r.totalFornecedores}</div>
+      <div class="kpi-sub">empresas distintas</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Pendências</div>
+      <div class="kpi-value amber">${r.totalPendencias}</div>
+      <div class="kpi-sub">não concluídas / dados incompletos</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Ticket Médio</div>
+      <div class="kpi-value" style="color:var(--purple); font-size:18px;">${fmtBRL(r.ticketMedio)}</div>
+      <div class="kpi-sub">valor médio por item</div>
+    </div>
+  `;
+}
+
+function renderCustosBarList(elId, list, keyField, labels, colors, fallbackColor) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!list || !list.length) {
+    el.innerHTML = '<div class="custo-empty">Nenhum dado lançado ainda.</div>';
+    return;
+  }
+  const maxValor = Math.max(...list.map(d => d.valor), 1);
+  el.innerHTML = `<div class="custo-bar-list">${list.map(d => {
+    const key = d[keyField];
+    const label = labels ? (labels[key] || key) : key;
+    const color = colors ? (colors[key] || '#8494A3') : (fallbackColor || '#F0A430');
+    const widthPct = (d.valor / maxValor * 100).toFixed(1);
+    return `
+      <div class="custo-bar-row">
+        <div class="custo-bar-label" title="${label}">${label}</div>
+        <div class="custo-bar-track"><div class="custo-bar-fill" style="width:${widthPct}%; background:${color};"></div></div>
+        <div class="custo-bar-value">${fmtBRL(d.valor)} · ${d.itens} it.</div>
+        <div class="custo-bar-pct">${d.pct}%</div>
+      </div>`;
+  }).join('')}</div>`;
+}
+
+function renderAbcChart() {
+  const canvas = document.getElementById('abcChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const items = (CUSTOS_RESUMO.curvaABC || []).slice(0, 15); // top 15 para legibilidade
+  if (abcChart) { abcChart.destroy(); abcChart = null; }
+  if (!items.length) return;
+
+  const classeColor = { A: '#E5484D', B: '#F0A430', C: '#33C481' };
+  abcChart = new Chart(canvas.getContext('2d'), {
+    data: {
+      labels: items.map(i => i.fornecedor),
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Valor (R$)',
+          data: items.map(i => i.valor),
+          backgroundColor: items.map(i => classeColor[i.classe] + 'CC'),
+          yAxisID: 'y',
+          order: 2,
+        },
+        {
+          type: 'line',
+          label: '% Acumulado',
+          data: items.map(i => i.pctAcum),
+          borderColor: '#5B9FE3',
+          backgroundColor: 'rgba(91,159,227,0.1)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#5B9FE3',
+          yAxisID: 'y1',
+          tension: 0.2,
+          order: 1,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          labels: { color: '#8494A3', font: { family: 'IBM Plex Mono', size: 10 } },
+        },
+        tooltip: {
+          backgroundColor: '#121821',
+          titleFont: { family: 'IBM Plex Mono', size: 11 },
+          bodyFont: { family: 'IBM Plex Mono', size: 11 },
+          callbacks: {
+            label: (ctx) => ctx.dataset.yAxisID === 'y1'
+              ? ' % Acumulado: ' + ctx.parsed.y.toFixed(1) + '%'
+              : ' Valor: ' + fmtBRL(ctx.parsed.y),
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: '#8494A3', font: { family: 'IBM Plex Mono', size: 9 }, maxRotation: 40, minRotation: 20, autoSkip: false },
+        },
+        y: {
+          position: 'left',
+          grid: { color: '#1A222B' },
+          ticks: { color: '#8494A3', font: { family: 'IBM Plex Mono', size: 9 }, callback: v => (v / 1000) + 'k' },
+        },
+        y1: {
+          position: 'right',
+          min: 0, max: 100,
+          grid: { display: false },
+          ticks: { color: '#5B9FE3', font: { family: 'IBM Plex Mono', size: 9 }, callback: v => v + '%' },
+        },
+      },
+    },
+  });
+}
+
+function renderAbcTable() {
+  const tbody = document.querySelector('#abcTable tbody');
+  if (!tbody) return;
+  const items = CUSTOS_RESUMO.curvaABC || [];
+  tbody.innerHTML = items.length ? items.map(i => `
+    <tr>
+      <td>${i.rank}</td>
+      <td>${i.fornecedor}</td>
+      <td class="small-muted">${i.atividade || '—'}</td>
+      <td>${DISCIPLINA_LABELS[i.disciplina] || i.disciplina}</td>
+      <td class="num">${fmtBRL(i.valor)}</td>
+      <td class="num">${i.pct}%</td>
+      <td class="num">${i.pctAcum}%</td>
+      <td>${abcBadgeHtml(i.classe)}</td>
+    </tr>`).join('') : '<tr class="table-empty-row"><td colspan="8">Nenhum item lançado ainda.</td></tr>';
+}
+
+function renderPendenciasTable() {
+  const tbody = document.querySelector('#pendenciasTable tbody');
+  const sub = document.getElementById('custosPendSub');
+  if (!tbody) return;
+  const items = CUSTOS_RESUMO.pendencias || [];
+  if (sub) sub.textContent = items.length
+    ? `${items.length} item(ns) pendente(s) de conclusão ou com dados incompletos`
+    : 'Nenhuma pendência — todos os itens concluídos e com dados completos';
+  const isAdmin = USER && USER.role === 'admin';
+  tbody.innerHTML = items.length ? items.map(i => `
+    <tr>
+      <td>${i.fornecedor}</td>
+      <td>${DISCIPLINA_LABELS[i.disciplina] || i.disciplina}</td>
+      <td class="small-muted">${i.atividade || '—'}</td>
+      <td class="num">${fmtBRL(i.valor)}</td>
+      <td class="num">${fmtDateBR(i.data_fim)}</td>
+      <td><div class="motivo-tags">${(i.motivos || []).map(m => `<span class="motivo-tag">${m}</span>`).join('')}</div></td>
+      <td>${isAdmin ? statusSelectHtml(i.id, i.status) : statusBadgeHtml(i.status)}</td>
+    </tr>`).join('') : '<tr class="table-empty-row"><td colspan="7">Nenhuma pendência no momento.</td></tr>';
+  if (isAdmin) bindStatusSelects(tbody);
+}
+
+function statusSelectHtml(id, current) {
+  return `<select class="status-select" data-custo-id="${id}">
+    ${Object.keys(STATUS_LABELS).map(s => `<option value="${s}" ${s === current ? 'selected' : ''}>${STATUS_LABELS[s]}</option>`).join('')}
+  </select>`;
+}
+function bindStatusSelects(container) {
+  container.querySelectorAll('.status-select').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const id = sel.getAttribute('data-custo-id');
+      try {
+        await api('/api/custos/' + id + '/status', { method: 'PATCH', body: JSON.stringify({ status: sel.value }) });
+        await renderCustos();
+      } catch (e) {
+        alert('Erro ao atualizar status: ' + e.message);
+      }
+    });
+  });
+}
+
+function renderCustosChips() {
+  const discEl = document.getElementById('custosDisciplinaChips');
+  const statusEl = document.getElementById('custosStatusChips');
+  if (discEl && discEl.childElementCount === 0) {
+    const disciplinas = ['todas', ...Object.keys(DISCIPLINA_LABELS)];
+    discEl.innerHTML = disciplinas.map(d => `<button class="chip${d === custosDisciplinaFilter ? ' active' : ''}" data-disc="${d}">${d === 'todas' ? 'Todas as disciplinas' : DISCIPLINA_LABELS[d]}</button>`).join('');
+    discEl.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        custosDisciplinaFilter = chip.getAttribute('data-disc');
+        discEl.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === chip));
+        renderCustosTable();
+      });
+    });
+  }
+  if (statusEl && statusEl.childElementCount === 0) {
+    const statuses = ['todas', ...Object.keys(STATUS_LABELS)];
+    statusEl.innerHTML = statuses.map(s => `<button class="chip${s === custosStatusFilter ? ' active' : ''}" data-status="${s}">${s === 'todas' ? 'Todos os status' : STATUS_LABELS[s]}</button>`).join('');
+    statusEl.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        custosStatusFilter = chip.getAttribute('data-status');
+        statusEl.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === chip));
+        renderCustosTable();
+      });
+    });
+  }
+}
+
+function renderCustosTable() {
+  const tbody = document.querySelector('#custosTable tbody');
+  if (!tbody) return;
+  const isAdmin = USER && USER.role === 'admin';
+
+  let list = CUSTOS.slice();
+  if (custosDisciplinaFilter !== 'todas') list = list.filter(c => c.disciplina === custosDisciplinaFilter);
+  if (custosStatusFilter !== 'todas') list = list.filter(c => c.status === custosStatusFilter);
+
+  tbody.innerHTML = list.length ? list.map(c => `
+    <tr>
+      <td>${c.fornecedor}</td>
+      <td>${DISCIPLINA_LABELS[c.disciplina] || c.disciplina}</td>
+      <td class="small-muted">${c.atividade || '—'}</td>
+      <td class="num">${fmtBRL(c.valor)}</td>
+      <td class="small-muted">${fmtDateBR(c.data_inicio)} – ${fmtDateBR(c.data_fim)}</td>
+      <td class="small-muted">${c.responsavel || '—'}</td>
+      <td>${isAdmin ? statusSelectHtml(c.id, c.status) : statusBadgeHtml(c.status)}</td>
+      ${isAdmin ? `<td><div class="row-actions">
+          <button data-edit="${c.id}">Editar</button>
+          <button data-del="${c.id}" class="danger">Excluir</button>
+        </div></td>` : ''}
+    </tr>`).join('') : `<tr class="table-empty-row"><td colspan="${isAdmin ? 8 : 7}">Nenhum item encontrado para este filtro.</td></tr>`;
+
+  if (isAdmin) {
+    bindStatusSelects(tbody);
+    tbody.querySelectorAll('[data-edit]').forEach(btn => {
+      btn.addEventListener('click', () => openCustoModal(btn.getAttribute('data-edit')));
+    });
+    tbody.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', () => deleteCusto(btn.getAttribute('data-del')));
+    });
+  }
+}
+
+// ---- Modal criar/editar ----
+const custoModal = document.getElementById('custoModalOverlay');
+function openCustoModal(id) {
+  custoEditingId = id || null;
+  document.getElementById('custoModalTitle').textContent = id ? 'Editar Custo' : 'Novo Custo';
+  document.getElementById('custoModalError').classList.add('hidden');
+
+  const c = id ? CUSTOS.find(x => String(x.id) === String(id)) : null;
+  document.getElementById('custoFornecedor').value = c ? c.fornecedor : '';
+  document.getElementById('custoDisciplina').value = c ? c.disciplina : 'OUTROS';
+  document.getElementById('custoStatus').value = c ? c.status : 'PENDENTE';
+  document.getElementById('custoAtividade').value = c ? (c.atividade || '') : '';
+  document.getElementById('custoValor').value = c ? c.valor : '';
+  document.getElementById('custoDataInicio').value = c && c.data_inicio ? String(c.data_inicio).slice(0, 10) : '';
+  document.getElementById('custoDataFim').value = c && c.data_fim ? String(c.data_fim).slice(0, 10) : '';
+  document.getElementById('custoResponsavel').value = c ? (c.responsavel || '') : '';
+  document.getElementById('custoContato').value = c ? (c.contato || '') : '';
+  document.getElementById('custoEscopo').value = c ? (c.escopo || '') : '';
+  document.getElementById('custoObservacao').value = c ? (c.observacao || '') : '';
+
+  custoModal.classList.remove('hidden');
+  document.getElementById('custoFornecedor').focus();
+}
+document.getElementById('custosNovoBtn')?.addEventListener('click', () => openCustoModal(null));
+document.getElementById('custoCancelBtn').addEventListener('click', () => custoModal.classList.add('hidden'));
+custoModal.addEventListener('click', (e) => { if (e.target === custoModal) custoModal.classList.add('hidden'); });
+
+document.getElementById('custoSaveBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('custoModalError');
+  errEl.classList.add('hidden');
+  const body = {
+    fornecedor: document.getElementById('custoFornecedor').value.trim(),
+    disciplina: document.getElementById('custoDisciplina').value,
+    status: document.getElementById('custoStatus').value,
+    atividade: document.getElementById('custoAtividade').value.trim(),
+    valor: parseFloat(document.getElementById('custoValor').value),
+    data_inicio: document.getElementById('custoDataInicio').value || null,
+    data_fim: document.getElementById('custoDataFim').value || null,
+    responsavel: document.getElementById('custoResponsavel').value.trim(),
+    contato: document.getElementById('custoContato').value.trim(),
+    escopo: document.getElementById('custoEscopo').value.trim(),
+    observacao: document.getElementById('custoObservacao').value.trim(),
+  };
+  if (!body.fornecedor) { errEl.textContent = 'Informe o fornecedor.'; errEl.classList.remove('hidden'); return; }
+  if (isNaN(body.valor) || body.valor < 0) { errEl.textContent = 'Informe um valor válido.'; errEl.classList.remove('hidden'); return; }
+
+  try {
+    if (custoEditingId) {
+      await api('/api/custos/' + custoEditingId, { method: 'PUT', body: JSON.stringify(body) });
+    } else {
+      await api('/api/custos', { method: 'POST', body: JSON.stringify(body) });
+    }
+    custoModal.classList.add('hidden');
+    await renderCustos();
+  } catch (e) {
+    errEl.textContent = e.message || 'Erro ao salvar.';
+    errEl.classList.remove('hidden');
+  }
+});
+
+async function deleteCusto(id) {
+  const c = CUSTOS.find(x => String(x.id) === String(id));
+  if (!confirm(`Excluir o item de custo de "${c ? c.fornecedor : id}"? Essa ação não pode ser desfeita.`)) return;
+  try {
+    await api('/api/custos/' + id, { method: 'DELETE' });
+    await renderCustos();
+  } catch (e) {
+    alert('Erro ao excluir: ' + e.message);
+  }
+}
+
+// ---- Importar custos (admin) ----
+document.getElementById('custosImportBtn')?.addEventListener('click', () => {
+  document.getElementById('custosImportInput').click();
+});
+document.getElementById('custosImportInput')?.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    const items = Array.isArray(json) ? json : json.items;
+    if (!Array.isArray(items) || !items.length) throw new Error('JSON deve ser um array ou { items: [...] }');
+    if (!confirm(`Importar ${items.length} item(ns)? Isso substitui TODA a lista de custos atual.`)) {
+      e.target.value = '';
+      return;
+    }
+    const data = await api('/api/custos/import', { method: 'POST', body: JSON.stringify({ items }) });
+    alert('Custos importados: ' + data.totalItens + ' itens.');
+    await renderCustos();
+  } catch (err) {
+    alert('Erro ao importar arquivo: ' + err.message);
+  } finally {
+    e.target.value = '';
+  }
+});
 
 // ================= Import cronograma (admin) =================
 document.getElementById('importBtn')?.addEventListener('click', () => {

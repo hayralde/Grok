@@ -37,6 +37,7 @@
       try { setupTabsForRole(); } catch (e) {}
     }
     hideAbrirButtons();
+    // Keep removing Abrir if home re-renders
     const grid = document.getElementById('homeGrid');
     if (grid && !grid._visitorObs) {
       grid._visitorObs = new MutationObserver(hideAbrirButtons);

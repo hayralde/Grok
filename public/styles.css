@@ -603,3 +603,78 @@ footer{ text-align:center; padding: 20px; font-size: 11px; color: var(--text-dim
 }
 .home-legend .lg-plan::before{ background: #F0A430; }
 .home-legend .lg-real::before{ background: #33C481; }
+
+/* ================= Custos ================= */
+.custo-bar-list{ display:flex; flex-direction:column; gap:10px; }
+.custo-bar-row{ display:flex; align-items:center; gap:12px; }
+.custo-bar-label{
+  min-width:120px; max-width:180px; font-family: var(--font-mono); font-size:12px;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.custo-bar-track{ flex:1; height:16px; background:var(--panel-alt); border-radius:3px; overflow:hidden; min-width:80px; }
+.custo-bar-fill{ height:100%; border-radius:3px; transition:width .3s ease; }
+.custo-bar-value{
+  width:150px; text-align:right; font-family: var(--font-mono); font-size:11.5px; color:var(--text-muted); flex-shrink:0;
+}
+.custo-bar-pct{ width:48px; text-align:right; font-family: var(--font-mono); font-size:12px; font-weight:600; color:var(--text); flex-shrink:0; }
+.custo-empty{ padding:16px; color:var(--text-dim); font-size:13px; }
+
+.data-table-wrap{ overflow-x:auto; border:1px solid var(--border); border-radius:6px; }
+table.data-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+table.data-table thead th{
+  text-align:left; padding:9px 12px; background:var(--panel-alt);
+  font-family: var(--font-mono); font-size:10.5px; text-transform:uppercase; letter-spacing:0.6px;
+  color: var(--text-dim); border-bottom:1px solid var(--border); white-space:nowrap;
+}
+table.data-table tbody td{
+  padding:9px 12px; border-bottom:1px solid var(--border-soft); vertical-align:middle;
+}
+table.data-table tbody tr:last-child td{ border-bottom:none; }
+table.data-table tbody tr:hover{ background: rgba(255,255,255,0.02); }
+table.data-table td.num{ font-family: var(--font-mono); text-align:right; white-space:nowrap; }
+table.data-table td.small-muted{ color:var(--text-dim); font-size:11.5px; }
+.table-empty-row td{ text-align:center; color:var(--text-dim); padding:20px; }
+
+.status-badge, .abc-badge{
+  display:inline-block; padding:3px 8px; border-radius:3px; font-family: var(--font-mono);
+  font-size:10.5px; font-weight:600; text-transform:uppercase; letter-spacing:0.4px; white-space:nowrap;
+}
+.status-badge.st-pendente{ background: rgba(240,164,48,0.15); color: var(--amber); }
+.status-badge.st-em_andamento{ background: rgba(91,159,227,0.15); color: var(--blue); }
+.status-badge.st-concluido{ background: rgba(51,196,129,0.15); color: var(--green); }
+.status-badge.st-cancelado{ background: rgba(229,72,77,0.15); color: var(--red); }
+.status-select{
+  background: var(--panel-alt); border:1px solid var(--border); color:var(--text);
+  font-family: var(--font-mono); font-size:11px; padding:4px 6px; border-radius:4px;
+}
+.abc-badge.abc-a{ background: rgba(229,72,77,0.15); color: var(--red); }
+.abc-badge.abc-b{ background: rgba(240,164,48,0.15); color: var(--amber); }
+.abc-badge.abc-c{ background: rgba(51,196,129,0.15); color: var(--green); }
+
+.motivo-tags{ display:flex; flex-wrap:wrap; gap:4px; }
+.motivo-tag{
+  font-size:10.5px; padding:2px 6px; border-radius:3px; background:var(--panel-alt);
+  color:var(--text-muted); border:1px solid var(--border);
+}
+
+.row-actions{ display:flex; gap:6px; }
+.row-actions button{
+  background:none; border:1px solid var(--border); color:var(--text-muted);
+  font-family: var(--font-mono); font-size:10.5px; padding:4px 8px; border-radius:4px; cursor:pointer;
+}
+.row-actions button:hover{ border-color:var(--amber); color:var(--text); }
+.row-actions button.danger:hover{ border-color:var(--red); color:var(--red); }
+
+.form-grid{ display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
+.form-grid label{
+  display:flex; flex-direction:column; gap:4px; font-size:11.5px; color:var(--text-muted);
+  font-family: var(--font-mono); text-transform:uppercase; letter-spacing:0.4px;
+}
+.form-row{ display:flex; gap:10px; }
+.form-row label{ flex:1; }
+.form-grid input, .form-grid select, .form-grid textarea{
+  background: var(--panel-alt); border:1px solid var(--border); color:var(--text);
+  font-family: var(--font-body); font-size:13px; padding:8px 10px; border-radius:4px;
+  text-transform:none; letter-spacing:normal; resize:vertical;
+}
+.form-grid input:focus, .form-grid select:focus, .form-grid textarea:focus{ outline:1px solid var(--amber); }
