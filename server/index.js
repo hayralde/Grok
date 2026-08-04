@@ -333,7 +333,9 @@ function consumeOAuthState(state) {
   return !!exp && exp > Date.now();
 }
 function oauthRedirectUri(req) {
-  return `${req.protocol}://${req.get('host')}/api/admin/google-auth/callback`;
+  const uri = `${req.protocol}://${req.get('host')}/api/admin/google-auth/callback`;
+  console.log('[google-auth] redirect_uri usado:', uri);
+  return uri;
 }
 
 app.get('/api/admin/google-auth/status', authRequired, requireRole('admin'), async (_req, res) => {
