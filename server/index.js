@@ -16,6 +16,7 @@ const { startScheduler: startBackupScheduler, runBackupNow } = require('./backup
 const RESET_PASSWORD = process.env.RESET_PASSWORD || '654321';
 
 const app = express();
+app.set('trust proxy', 1); // Render fica atrás de um proxy; sem isso req.protocol vem como 'http' mesmo em produção, quebrando o redirect_uri do OAuth do Google
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 
