@@ -184,6 +184,74 @@ disciplina/fornecedor, Curva ABC e pendências **para todo mundo, inclusive admi
 Toda alteração (criar/editar/excluir/importar/status) dispara o evento Socket.io
 `custos-atualizado`, atualizando a aba em tempo real para todos os usuários conectados.
 
+## Backup do banco (admin)
+
+Botão "Backup do Banco" no cabeçalho (visível só para admin logado) → baixa um
+arquivo `pcm_backup_<timestamp>.json` para a máquina local, com o dump completo
+de todas as tabelas do schema (`users`, `tasks`, `meta`, `custos` — descobertas
+dinamicamente, então continua funcionando se novas tabelas forem criadas no
+futuro). Rota: `GET /api/admin/backup` (admin only).
+
+⚠️ O arquivo inclui a tabela `users` com `password_hash` (hash bcrypt, não a
+senha em texto puro) — trate o arquivo como sensível e guarde em local seguro.
+
+Não depende do binário `pg_dump` (que normalmente não está disponível no
+ambiente do Render) — a consulta e a montagem do JSON são feitas em JavaScript
+puro via `pg`.
+
+### Backup automático diário no Google Drive
+
+Além do download manual, o servidor pode enviar sozinho, 1x por dia, um backup
+para uma pasta do Google Drive — sem depender de ninguém clicar em nada.
+
+**Como funciona por baixo dos panos:** a integração usa uma *Service Account*
+do Google (credencial de servidor-para-servidor, sem tela de login/senha do
+Google no meio). Como Service Accounts não têm cota de armazenamento própria
+no Drive pessoal, o backup é enviado para uma pasta que **você** cria na sua
+conta normal do Google Drive e compartilha com o e-mail da Service Account —
+o arquivo então conta na sua cota, e a Service Account só tem permissão de
+escrever ali dentro, nada além disso.
+
+**Passo a passo (feito uma única vez, fora do código):**
+1. Acesse [console.cloud.google.com](https://console.cloud.google.com), crie
+   um projeto (ou use um existente).
+2. Em "APIs e serviços" → "Biblioteca", ative a **Google Drive API**.
+3. Em "APIs e serviços" → "Credenciais" → "Criar credenciais" → **Conta de
+   serviço**. Dê um nome (ex.: `pcm-backup`) e conclua — não precisa conceder
+   nenhum papel de projeto.
+4. Abra a conta de serviço criada → aba "Chaves" → "Adicionar chave" →
+   "Criar nova chave" → tipo **JSON**. Isso baixa um arquivo `.json` — guarde-o
+   com cuidado, ele dá acesso à pasta do Drive que você for compartilhar.
+5. Copie o **e-mail** da conta de serviço (algo como
+   `pcm-backup@seu-projeto.iam.gserviceaccount.com`).
+6. No seu Google Drive normal, crie uma pasta (ex.: "PCM Backups"), clique em
+   "Compartilhar" e adicione esse e-mail com papel **Editor**.
+7. Pegue o **ID da pasta**: é o trecho final da URL ao abrir a pasta —
+   `https://drive.google.com/drive/folders/`**`ESSE_TRECHO_AQUI`**.
+
+**Variáveis de ambiente a configurar no Render** (Dashboard do serviço →
+Environment):
+| Variável | Valor |
+|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | conteúdo **completo** do arquivo `.json` baixado no passo 4 (cole o JSON inteiro) |
+| `GOOGLE_DRIVE_FOLDER_ID` | o ID da pasta do passo 7 |
+| `BACKUP_HOUR_UTC` | *(opcional)* hora do backup automático, em UTC, 0-23. Padrão: `6` (≈ 02h em Mato Grosso, fora do horário de uso do painel) |
+
+Com essas variáveis configuradas, o servidor já sobe com o agendador ativo —
+não precisa reiniciar nada além do redeploy normal. Sem elas, o recurso fica
+simplesmente desligado (o painel continua funcionando normal, só sem o backup
+automático).
+
+**Botão "Testar Backup no Drive"** (ao lado do "Backup do Banco", admin only):
+dispara um envio imediato para a pasta configurada, sem esperar o horário
+agendado — use para confirmar que as credenciais/permissões estão certas antes
+de contar com o agendamento diário.
+
+Cada arquivo automático é salvo como `pcm_backup_auto_<data>.json`, um por dia
+(o servidor guarda a data do último envio na tabela `meta` para não duplicar
+se reiniciar mais de uma vez no mesmo dia). Não há limpeza automática de
+arquivos antigos na pasta — se quiser, é possível configurar isso depois.
+
 ## Estrutura
 
 ```

@@ -8,6 +8,9 @@ const { Server } = require('socket.io');
 const { pool, init, AREAS, DEFAULT_AREA, normalizeArea, CUSTO_DISCIPLINAS, CUSTO_STATUS } = require('./db');
 const { signToken, authRequired, authOptional, requireRole } = require('./auth');
 const { getAreaConfig, listAreas } = require('./areaConfig');
+const { buildBackupPayload, backupFilename } = require('./backup');
+const { isConfigured: googleDriveConfigured } = require('./googleDrive');
+const { startScheduler: startBackupScheduler, runBackupNow } = require('./backupScheduler');
 
 const RESET_PASSWORD = process.env.RESET_PASSWORD || '654321';
 
@@ -281,6 +284,37 @@ app.get('/api/team', authOptional, async (req, res) => {
     ORDER BY horas_planejadas DESC
   `, [area]);
   res.json({ area, team: rows });
+});
+
+// ---------- Backup do banco (admin only) — dump completo em JSON para download ----------
+// Descobre as tabelas do schema dinamicamente (não precisa manter lista manual
+// conforme o app evolui) e devolve cada uma com suas linhas. Não depende do
+// binário pg_dump (que normalmente não está disponível no ambiente do Render).
+app.get('/api/admin/backup', authRequired, requireRole('admin'), async (_req, res) => {
+  try {
+    const payload = await buildBackupPayload();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${backupFilename()}"`);
+    res.send(JSON.stringify(payload, null, 2));
+  } catch (e) {
+    console.error('backup error', e);
+    res.status(500).json({ error: 'Erro ao gerar backup do banco' });
+  }
+});
+
+// Dispara um backup imediato para o Google Drive (fora do agendamento diário) —
+// útil pra validar a configuração das credenciais antes de confiar no automático.
+app.post('/api/admin/backup/drive', authRequired, requireRole('admin'), async (_req, res) => {
+  if (!googleDriveConfigured()) {
+    return res.status(400).json({ error: 'Google Drive não configurado (defina GOOGLE_SERVICE_ACCOUNT_JSON e GOOGLE_DRIVE_FOLDER_ID no Render).' });
+  }
+  try {
+    const file = await runBackupNow();
+    res.json({ ok: true, file });
+  } catch (e) {
+    console.error('backup drive error', e);
+    res.status(500).json({ error: 'Erro ao enviar backup ao Google Drive: ' + e.message });
+  }
 });
 
 // ---------- Users (admin only) ----------
@@ -827,6 +861,7 @@ init()
   .then(() => {
     server.listen(PORT, () => {
       console.log(`Servidor rodando na porta ${PORT}`);
+      startBackupScheduler();
     });
   })
   .catch((err) => {

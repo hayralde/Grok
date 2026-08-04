@@ -104,6 +104,58 @@ document.getElementById('logoutBtn').addEventListener('click', () => {
   reloadData().then(renderAll);
 });
 
+document.getElementById('backupBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('backupBtn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Gerando backup...';
+  try {
+    const res = await fetch('/api/admin/backup', {
+      headers: TOKEN ? { Authorization: 'Bearer ' + TOKEN } : {},
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || ('Erro ' + res.status));
+    }
+    const blob = await res.blob();
+    // Reaproveita o nome de arquivo sugerido pelo servidor (Content-Disposition)
+    const disp = res.headers.get('Content-Disposition') || '';
+    const match = /filename="([^"]+)"/.exec(disp);
+    const filename = match ? match[1] : `pcm_backup_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    alert('Erro ao gerar backup: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
+document.getElementById('backupDriveBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('backupDriveBtn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Enviando ao Drive...';
+  try {
+    const data = await api('/api/admin/backup/drive', { method: 'POST' });
+    const link = data.file?.webViewLink;
+    alert('Backup enviado ao Google Drive com sucesso: ' + (data.file?.name || '') + (link ? '\n' + link : ''));
+  } catch (e) {
+    alert('Erro ao enviar backup ao Google Drive: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = original;
+  }
+});
+
 
 /** Restringe o seletor de área se o usuário tiver area_scope (ex.: supertgm → só TGM). */
 function applyAreaScopeUI() {
@@ -146,6 +198,10 @@ function applyUserUI() {
     loginBtn.classList.add('hidden');
     logoutBtn.classList.remove('hidden');
     adminControls.classList.toggle('hidden', USER.role !== 'admin');
+    const backupBtn = document.getElementById('backupBtn');
+    if (backupBtn) backupBtn.classList.toggle('hidden', USER.role !== 'admin');
+    const backupDriveBtn = document.getElementById('backupDriveBtn');
+    if (backupDriveBtn) backupDriveBtn.classList.toggle('hidden', USER.role !== 'admin');
     const custosAdmin = document.getElementById('custosAdminControls');
     if (custosAdmin) custosAdmin.classList.toggle('hidden', USER.role !== 'admin');
     const custosAcoesHead = document.getElementById('custosAcoesHead');
@@ -161,6 +217,10 @@ function applyUserUI() {
     loginBtn.classList.remove('hidden');
     logoutBtn.classList.add('hidden');
     adminControls.classList.add('hidden');
+    const backupBtn = document.getElementById('backupBtn');
+    if (backupBtn) backupBtn.classList.add('hidden');
+    const backupDriveBtn = document.getElementById('backupDriveBtn');
+    if (backupDriveBtn) backupDriveBtn.classList.add('hidden');
     const custosAdmin = document.getElementById('custosAdminControls');
     if (custosAdmin) custosAdmin.classList.add('hidden');
     const custosAcoesHead = document.getElementById('custosAcoesHead');
