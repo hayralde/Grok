@@ -156,6 +156,69 @@ document.getElementById('backupDriveBtn')?.addEventListener('click', async () =>
   }
 });
 
+document.getElementById('googleConnectBtn')?.addEventListener('click', () => {
+  if (!TOKEN) return;
+  // Navegação de página inteira (precisa ir até a tela de login do Google) —
+  // por isso o token vai na URL em vez do header Authorization.
+  window.location.href = '/api/admin/google-auth/start?token=' + encodeURIComponent(TOKEN);
+});
+
+document.getElementById('googleDisconnectBtn')?.addEventListener('click', async () => {
+  if (!confirm('Desconectar a conta do Google usada nos backups automáticos? O backup manual continua funcionando; o automático diário para até reconectar.')) return;
+  try {
+    await api('/api/admin/google-auth/disconnect', { method: 'POST' });
+    await refreshGoogleDriveStatus();
+  } catch (e) {
+    alert('Erro ao desconectar: ' + e.message);
+  }
+});
+
+/** Atualiza o texto de status e mostra/esconde os botões conforme o estado da conexão com o Google Drive. */
+function setGoogleDriveUI(status) {
+  const statusEl = document.getElementById('driveStatus');
+  const connectBtn = document.getElementById('googleConnectBtn');
+  const disconnectBtn = document.getElementById('googleDisconnectBtn');
+  const testBtn = document.getElementById('backupDriveBtn');
+  if (!statusEl || !connectBtn || !testBtn) return;
+
+  if (!status || !USER || USER.role !== 'admin') {
+    statusEl.classList.add('hidden');
+    connectBtn.classList.add('hidden');
+    disconnectBtn && disconnectBtn.classList.add('hidden');
+    testBtn.classList.add('hidden');
+    return;
+  }
+  if (!status.oauthClientConfigured) {
+    statusEl.textContent = 'Backup automático: credenciais do Google não configuradas no servidor';
+    statusEl.classList.remove('hidden');
+    connectBtn.classList.add('hidden');
+    disconnectBtn && disconnectBtn.classList.add('hidden');
+    testBtn.classList.add('hidden');
+    return;
+  }
+  if (status.connected) {
+    statusEl.textContent = 'Google Drive conectado' + (status.email ? ' (' + status.email + ')' : '');
+    statusEl.classList.remove('hidden');
+    connectBtn.classList.add('hidden');
+    disconnectBtn && disconnectBtn.classList.remove('hidden');
+    testBtn.classList.remove('hidden');
+  } else {
+    statusEl.classList.add('hidden');
+    connectBtn.classList.remove('hidden');
+    disconnectBtn && disconnectBtn.classList.add('hidden');
+    testBtn.classList.add('hidden');
+  }
+}
+
+async function refreshGoogleDriveStatus() {
+  try {
+    const status = await api('/api/admin/google-auth/status');
+    setGoogleDriveUI(status);
+  } catch (_) {
+    setGoogleDriveUI(null);
+  }
+}
+
 
 /** Restringe o seletor de área se o usuário tiver area_scope (ex.: supertgm → só TGM). */
 function applyAreaScopeUI() {
@@ -200,8 +263,7 @@ function applyUserUI() {
     adminControls.classList.toggle('hidden', USER.role !== 'admin');
     const backupBtn = document.getElementById('backupBtn');
     if (backupBtn) backupBtn.classList.toggle('hidden', USER.role !== 'admin');
-    const backupDriveBtn = document.getElementById('backupDriveBtn');
-    if (backupDriveBtn) backupDriveBtn.classList.toggle('hidden', USER.role !== 'admin');
+    if (USER.role === 'admin') refreshGoogleDriveStatus(); else setGoogleDriveUI(null);
     const custosAdmin = document.getElementById('custosAdminControls');
     if (custosAdmin) custosAdmin.classList.toggle('hidden', USER.role !== 'admin');
     const custosAcoesHead = document.getElementById('custosAcoesHead');
@@ -219,8 +281,7 @@ function applyUserUI() {
     adminControls.classList.add('hidden');
     const backupBtn = document.getElementById('backupBtn');
     if (backupBtn) backupBtn.classList.add('hidden');
-    const backupDriveBtn = document.getElementById('backupDriveBtn');
-    if (backupDriveBtn) backupDriveBtn.classList.add('hidden');
+    setGoogleDriveUI(null);
     const custosAdmin = document.getElementById('custosAdminControls');
     if (custosAdmin) custosAdmin.classList.add('hidden');
     const custosAcoesHead = document.getElementById('custosAcoesHead');

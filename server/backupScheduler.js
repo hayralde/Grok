@@ -35,8 +35,8 @@ async function runBackupNow() {
 
 /** Chamado periodicamente: só executa se estiver no horário configurado e ainda não tiver rodado hoje. */
 async function checkAndRunScheduled() {
-  if (!googleDrive.isConfigured()) return; // recurso desligado até GOOGLE_* serem configurados
   if (running) return;
+  if (!(await googleDrive.isConfigured())) return; // recurso desligado até o admin conectar o Google Drive
 
   const now = new Date();
   if (now.getUTCHours() !== BACKUP_HOUR_UTC) return;
@@ -58,12 +58,12 @@ async function checkAndRunScheduled() {
   }
 }
 
-function startScheduler() {
-  if (!googleDrive.isConfigured()) {
-    console.log('[backup] Backup automático para Google Drive desativado (GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_DRIVE_FOLDER_ID não configurados).');
+async function startScheduler() {
+  if (!googleDrive.oauthClientConfigured()) {
+    console.log('[backup] Backup automático para Google Drive desativado (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET não configurados).');
     return;
   }
-  console.log(`[backup] Backup automático ativado — roda 1x/dia às ${BACKUP_HOUR_UTC}h UTC.`);
+  console.log(`[backup] Credenciais OAuth do Google detectadas — backup automático roda 1x/dia às ${BACKUP_HOUR_UTC}h UTC assim que o admin conectar o Google Drive pelo painel.`);
   checkAndRunScheduled().catch(e => console.error('[backup] erro na checagem inicial:', e.message));
   setInterval(() => {
     checkAndRunScheduled().catch(e => console.error('[backup] erro na checagem periódica:', e.message));

@@ -204,53 +204,67 @@ puro via `pg`.
 Além do download manual, o servidor pode enviar sozinho, 1x por dia, um backup
 para uma pasta do Google Drive — sem depender de ninguém clicar em nada.
 
-**Como funciona por baixo dos panos:** a integração usa uma *Service Account*
-do Google (credencial de servidor-para-servidor, sem tela de login/senha do
-Google no meio). Como Service Accounts não têm cota de armazenamento própria
-no Drive pessoal, o backup é enviado para uma pasta que **você** cria na sua
-conta normal do Google Drive e compartilha com o e-mail da Service Account —
-o arquivo então conta na sua cota, e a Service Account só tem permissão de
-escrever ali dentro, nada além disso.
+⚠️ **Atualização importante:** a versão anterior deste recurso usava uma
+*Service Account* do Google (conta "de robô") + pasta compartilhada como
+Editor. Isso **não funciona mais** — desde 2023/2024 o Google deu cota 0GB
+para Service Accounts e bloqueou esse workaround para contas Gmail pessoais
+(erro `Service Accounts do not have storage quota`). As alternativas oficiais
+do Google pra isso (Shared Drives / domain-wide delegation) só existem em
+contas **Google Workspace pagas**, não em Gmail comum.
+
+**Como funciona agora:** o admin conecta a própria conta Google pelo painel
+(um clique, tela de login do Google, autorizar) — igual a "Entrar com Google"
+em qualquer outro site. O app guarda essa autorização (um *refresh token*) no
+banco de dados e reusa sozinho, indefinidamente, sem precisar logar de novo.
+Os backups ficam na conta pessoal do admin, dentro da cota normal dela, numa
+pasta chamada **"PCM Backups"** que o próprio app cria automaticamente na
+primeira vez.
 
 **Passo a passo (feito uma única vez, fora do código):**
 1. Acesse [console.cloud.google.com](https://console.cloud.google.com), crie
    um projeto (ou use um existente).
 2. Em "APIs e serviços" → "Biblioteca", ative a **Google Drive API**.
-3. Em "APIs e serviços" → "Credenciais" → "Criar credenciais" → **Conta de
-   serviço**. Dê um nome (ex.: `pcm-backup`) e conclua — não precisa conceder
-   nenhum papel de projeto.
-4. Abra a conta de serviço criada → aba "Chaves" → "Adicionar chave" →
-   "Criar nova chave" → tipo **JSON**. Isso baixa um arquivo `.json` — guarde-o
-   com cuidado, ele dá acesso à pasta do Drive que você for compartilhar.
-5. Copie o **e-mail** da conta de serviço (algo como
-   `pcm-backup@seu-projeto.iam.gserviceaccount.com`).
-6. No seu Google Drive normal, crie uma pasta (ex.: "PCM Backups"), clique em
-   "Compartilhar" e adicione esse e-mail com papel **Editor**.
-7. Pegue o **ID da pasta**: é o trecho final da URL ao abrir a pasta —
-   `https://drive.google.com/drive/folders/`**`ESSE_TRECHO_AQUI`**.
+3. Em "APIs e serviços" → "Tela de consentimento OAuth": configure como
+   **Externo**, preencha nome do app e e-mail de suporte — não precisa
+   publicar nem passar por verificação do Google para uso pessoal/interno (só
+   fica com um aviso "app não verificado" na hora de conectar, que é normal;
+   clique em "Continuar"/"Avançado → Acessar (não seguro)" quando aparecer).
+   Em "Usuários de teste", adicione o seu próprio e-mail do Google.
+4. Em "APIs e serviços" → "Credenciais" → "Criar credenciais" → **ID do
+   cliente OAuth**. Tipo de aplicativo: **Aplicativo da Web**.
+5. Em "URIs de redirecionamento autorizados", adicione:
+   `https://SEU-APP.onrender.com/api/admin/google-auth/callback`
+   (troque pelo domínio real do seu serviço no Render).
+6. Clique em "Criar". Copie o **Client ID** e o **Client Secret** mostrados.
 
 **Variáveis de ambiente a configurar no Render** (Dashboard do serviço →
 Environment):
 | Variável | Valor |
 |---|---|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | conteúdo **completo** do arquivo `.json` baixado no passo 4 (cole o JSON inteiro) |
-| `GOOGLE_DRIVE_FOLDER_ID` | o ID da pasta do passo 7 |
-| `BACKUP_HOUR_UTC` | *(opcional)* hora do backup automático, em UTC, 0-23. Padrão: `6` (≈ 02h em Mato Grosso, fora do horário de uso do painel) |
+| `GOOGLE_OAUTH_CLIENT_ID` | Client ID do passo 6 |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Client Secret do passo 6 |
+| `GOOGLE_DRIVE_FOLDER_ID` | *(opcional)* ID de uma pasta específica do Drive, se não quiser usar a pasta "PCM Backups" auto-criada |
+| `BACKUP_HOUR_UTC` | *(opcional)* hora do backup automático, em UTC, 0-23. Padrão: `6` (≈ 02h em Mato Grosso) |
 
-Com essas variáveis configuradas, o servidor já sobe com o agendador ativo —
-não precisa reiniciar nada além do redeploy normal. Sem elas, o recurso fica
-simplesmente desligado (o painel continua funcionando normal, só sem o backup
-automático).
-
-**Botão "Testar Backup no Drive"** (ao lado do "Backup do Banco", admin only):
-dispara um envio imediato para a pasta configurada, sem esperar o horário
-agendado — use para confirmar que as credenciais/permissões estão certas antes
-de contar com o agendamento diário.
+**Depois do redeploy com essas variáveis:**
+7. Entre no painel como admin. No cabeçalho vai aparecer o botão **"Conectar
+   Google Drive"**.
+8. Clique nele — abre a tela de login do Google. Faça login com a conta que
+   vai guardar os backups e autorize o acesso.
+9. Você volta para uma página de confirmação ("Google Drive conectado com
+   sucesso") — pode fechar e voltar ao painel.
+10. O status no cabeçalho passa a mostrar "Google Drive conectado
+    (seu-email@gmail.com)", e o botão **"Testar Backup no Drive"** aparece —
+    use-o para confirmar que já está funcionando antes de contar com o
+    agendamento diário.
 
 Cada arquivo automático é salvo como `pcm_backup_auto_<data>.json`, um por dia
 (o servidor guarda a data do último envio na tabela `meta` para não duplicar
 se reiniciar mais de uma vez no mesmo dia). Não há limpeza automática de
 arquivos antigos na pasta — se quiser, é possível configurar isso depois.
+Um botão **"Desconectar Drive"** (admin) revoga a conexão a qualquer momento —
+o backup manual continua funcionando, só o automático diário para até
+reconectar.
 
 ## Estrutura
 

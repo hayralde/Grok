@@ -5,11 +5,12 @@ const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
 
+const jwt = require('jsonwebtoken');
 const { pool, init, AREAS, DEFAULT_AREA, normalizeArea, CUSTO_DISCIPLINAS, CUSTO_STATUS } = require('./db');
-const { signToken, authRequired, authOptional, requireRole } = require('./auth');
+const { signToken, authRequired, authOptional, requireRole, JWT_SECRET } = require('./auth');
 const { getAreaConfig, listAreas } = require('./areaConfig');
 const { buildBackupPayload, backupFilename } = require('./backup');
-const { isConfigured: googleDriveConfigured } = require('./googleDrive');
+const googleDrive = require('./googleDrive');
 const { startScheduler: startBackupScheduler, runBackupNow } = require('./backupScheduler');
 
 const RESET_PASSWORD = process.env.RESET_PASSWORD || '654321';
@@ -305,8 +306,8 @@ app.get('/api/admin/backup', authRequired, requireRole('admin'), async (_req, re
 // Dispara um backup imediato para o Google Drive (fora do agendamento diário) —
 // útil pra validar a configuração das credenciais antes de confiar no automático.
 app.post('/api/admin/backup/drive', authRequired, requireRole('admin'), async (_req, res) => {
-  if (!googleDriveConfigured()) {
-    return res.status(400).json({ error: 'Google Drive não configurado (defina GOOGLE_SERVICE_ACCOUNT_JSON e GOOGLE_DRIVE_FOLDER_ID no Render).' });
+  if (!(await googleDrive.isConfigured())) {
+    return res.status(400).json({ error: 'Google Drive não conectado. Use o botão "Conectar Google Drive".' });
   }
   try {
     const file = await runBackupNow();
@@ -315,6 +316,69 @@ app.post('/api/admin/backup/drive', authRequired, requireRole('admin'), async (_
     console.error('backup drive error', e);
     res.status(500).json({ error: 'Erro ao enviar backup ao Google Drive: ' + e.message });
   }
+});
+
+// ---------- Conectar Google Drive (OAuth2 — login com a conta pessoal do admin) ----------
+// Guarda estados pendentes (proteção CSRF simples): state -> expiração
+const pendingOAuthStates = new Map();
+function newOAuthState() {
+  const state = require('crypto').randomBytes(16).toString('hex');
+  pendingOAuthStates.set(state, Date.now() + 5 * 60 * 1000); // expira em 5 min
+  return state;
+}
+function consumeOAuthState(state) {
+  const exp = pendingOAuthStates.get(state);
+  pendingOAuthStates.delete(state);
+  return !!exp && exp > Date.now();
+}
+function oauthRedirectUri(req) {
+  return `${req.protocol}://${req.get('host')}/api/admin/google-auth/callback`;
+}
+
+app.get('/api/admin/google-auth/status', authRequired, requireRole('admin'), async (_req, res) => {
+  res.json(await googleDrive.getStatus());
+});
+
+// Navegação de página inteira (não é chamada via fetch), então o token JWT vem
+// por query string em vez do header Authorization.
+app.get('/api/admin/google-auth/start', (req, res) => {
+  let user;
+  try {
+    user = jwt.verify(String(req.query.token || ''), JWT_SECRET);
+  } catch (e) {
+    return res.status(401).send('Não autenticado. Faça login como admin no painel e tente de novo.');
+  }
+  if (user.role !== 'admin') return res.status(403).send('Apenas admin pode conectar o Google Drive.');
+  if (!googleDrive.oauthClientConfigured()) {
+    return res.status(400).send('GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET não configurados no Render.');
+  }
+  const state = newOAuthState();
+  res.redirect(googleDrive.getAuthUrl(oauthRedirectUri(req), state));
+});
+
+app.get('/api/admin/google-auth/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+  if (error) return res.status(400).send(`Autorização cancelada ou negada pelo Google (${error}). Pode fechar esta aba e tentar de novo.`);
+  if (!state || !consumeOAuthState(String(state))) {
+    return res.status(400).send('Solicitação inválida ou expirada. Volte ao painel e clique em "Conectar Google Drive" de novo.');
+  }
+  try {
+    const email = await googleDrive.completeAuth(String(code), oauthRedirectUri(req));
+    res.send(`
+      <html><body style="font-family:sans-serif; padding:40px; text-align:center;">
+        <h2>Google Drive conectado com sucesso${email ? ' — ' + email : ''}!</h2>
+        <p>Pode fechar esta aba e voltar ao painel do PCM.</p>
+      </body></html>
+    `);
+  } catch (e) {
+    console.error('google-auth callback error', e);
+    res.status(500).send('Erro ao concluir a conexão com o Google: ' + e.message);
+  }
+});
+
+app.post('/api/admin/google-auth/disconnect', authRequired, requireRole('admin'), async (_req, res) => {
+  await googleDrive.disconnect();
+  res.json({ ok: true });
 });
 
 // ---------- Users (admin only) ----------
