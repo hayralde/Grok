@@ -38,7 +38,14 @@ function getDriveClient() {
   const { google } = require('googleapis');
   const auth = new google.auth.GoogleAuth({
     credentials,
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
+    // OBS: NÃO usar 'drive.file' aqui — esse escopo só enxerga arquivos/pastas
+    // que a própria conta de serviço criou. Como a pasta de backup é criada
+    // pelo usuário (no Drive pessoal) e apenas compartilhada com a conta de
+    // serviço, é preciso o escopo 'drive' completo para conseguir escrever
+    // nela. Sem isso, o Google trata a criação como "sem pasta pai válida" e
+    // tenta usar o Drive próprio da conta de serviço — que não tem cota,
+    // gerando o erro "Service Accounts do not have storage quota".
+    scopes: ['https://www.googleapis.com/auth/drive'],
   });
   return google.drive({ version: 'v3', auth });
 }
