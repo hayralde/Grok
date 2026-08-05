@@ -19,7 +19,8 @@
   function forceLoginModal() {
     var openBtn = document.getElementById('loginOpenBtn');
     var overlay = document.getElementById('loginModalOverlay');
-    if (openBtn) openBtn.click();
+    var alreadyOpen = overlay && !overlay.classList.contains('hidden');
+    if (!alreadyOpen && openBtn) openBtn.click();
     if (overlay) overlay.classList.remove('hidden');
   }
 
