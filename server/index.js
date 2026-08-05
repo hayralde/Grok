@@ -7,7 +7,7 @@ const { Server } = require('socket.io');
 
 const jwt = require('jsonwebtoken');
 const { pool, init, AREAS, DEFAULT_AREA, normalizeArea, CUSTO_DISCIPLINAS, CUSTO_STATUS } = require('./db');
-const { signToken, authRequired, authOptional, requireRole, JWT_SECRET } = require('./auth');
+const { signToken, authRequired, requireRole, JWT_SECRET } = require('./auth');
 const { getAreaConfig, listAreas } = require('./areaConfig');
 const { buildBackupPayload, backupFilename } = require('./backup');
 const googleDrive = require('./googleDrive');
@@ -83,7 +83,7 @@ app.get('/api/areas', (_req, res) => {
 });
 
 /** Dashboard visitante: KPIs + pontos da Curva S das 3 áreas */
-app.get('/api/dashboard', authOptional, async (req, res) => {
+app.get('/api/dashboard', authRequired, async (req, res) => {
   try {
     const result = {};
     for (const area of AREAS) {
@@ -160,7 +160,7 @@ app.get('/api/dashboard', authOptional, async (req, res) => {
 });
 
 // ---------- Meta (public read) ----------
-app.get('/api/meta', authOptional, async (req, res) => {
+app.get('/api/meta', authRequired, async (req, res) => {
   const area = resolveArea(req);
   if (!area) return res.status(400).json({ error: 'Area invalida. Use ELETRICA, MECANICA ou TGM.' });
   const denied = enforceUserArea(req, area);
@@ -196,7 +196,7 @@ app.get('/api/meta', authOptional, async (req, res) => {
 });
 
 // ---------- Tasks (public read; operador logged-in sees only own tasks) ----------
-app.get('/api/tasks', authOptional, async (req, res) => {
+app.get('/api/tasks', authRequired, async (req, res) => {
   const area = resolveArea(req);
   if (!area) return res.status(400).json({ error: 'Area invalida. Use ELETRICA, MECANICA ou TGM.' });
   const denied = enforceUserArea(req, area);
@@ -267,7 +267,7 @@ app.post('/api/reset', authRequired, requireRole('admin'), async (req, res) => {
 });
 
 // ---------- Team summary (public read) ----------
-app.get('/api/team', authOptional, async (req, res) => {
+app.get('/api/team', authRequired, async (req, res) => {
   const area = resolveArea(req);
   if (!area) return res.status(400).json({ error: 'Area invalida. Use ELETRICA, MECANICA ou TGM.' });
   const denied = enforceUserArea(req, area);

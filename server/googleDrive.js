@@ -142,17 +142,10 @@ async function resolveFolderId(drive) {
   const cached = await getMeta(META_FOLDER_ID);
   if (cached) return cached;
 
-  const found = await drive.files.list({
-    q: "name = 'PCM Backups' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-    fields: 'files(id, name)',
-    spaces: 'drive',
-  });
-  if (found.data.files && found.data.files.length) {
-    const id = found.data.files[0].id;
-    await setMeta(META_FOLDER_ID, id);
-    return id;
-  }
-
+  // OBS: não usar drive.files.list() aqui para "procurar" uma pasta existente —
+  // o escopo 'drive.file' não permite buscas gerais no Drive (só arquivos que o
+  // próprio app criou), e isso gera "Request had insufficient authentication
+  // scopes". Por isso: cria uma vez e guarda o ID em `meta` para sempre reusar.
   const created = await drive.files.create({
     requestBody: { name: 'PCM Backups', mimeType: 'application/vnd.google-apps.folder' },
     fields: 'id',
