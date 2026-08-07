@@ -29,6 +29,8 @@
     forceLoginModal();
   }
 
+  run(); // roda imediatamente — não espera nenhum evento do navegador, que pode já ter disparado antes deste script carregar
+
   document.addEventListener('DOMContentLoaded', run);
   window.addEventListener('load', run);
 
